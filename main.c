@@ -85,6 +85,8 @@ unsigned char* load_pgm(const char *filename, int *w, int *h, int *channels) {
         return NULL;
     }
     
+    printf("Cariamento immagine...\n");
+
     char magic[3];
     fscanf(f, "%2s", magic);
     
@@ -97,7 +99,10 @@ unsigned char* load_pgm(const char *filename, int *w, int *h, int *channels) {
         fclose(f);
         return NULL;
     }
-    
+
+    printf("Channels read: %d \n", *channels);
+
+
     int max_val;
     fscanf(f, "%d %d %d", w, h, &max_val);
     fgetc(f); // consume whitespace
@@ -144,6 +149,7 @@ int main(int argc, char *argv[]) {
     
     int width, height, channels;
     unsigned char *img = load_pgm(input_file, &width, &height, &channels);
+
     
     if (!img) {
         return 1;
