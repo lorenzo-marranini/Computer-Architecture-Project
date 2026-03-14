@@ -200,7 +200,7 @@ int main(int argc, char *argv[]) {
     printf("Processing with %d threads...\n", threads);
     ordered_dither_mt(img, width, height, threads, channels);
     
-    save_pgm(output_file, img, width, height, channels);
+    //save_pgm(output_file, img, width, height, channels);
     printf("Saved to: %s\n", output_file);
     
     free(img);
