@@ -20,6 +20,8 @@ typedef struct {
 // Il Worker che utilizza la logica Calendar Sort (Counting Sort)
 void* adaptive_median_worker(void* arg) {
     ThreadData* td = (ThreadData*)arg;
+    
+    // Allocazione statica dell'array di bucket sullo stack del thread
     int buckets[256];
     
     for (int y = td->start_row; y < td->end_row; y++) {
@@ -29,28 +31,28 @@ void* adaptive_median_worker(void* arg) {
                 int out_idx = (y * td->width + x) * td->channels + c;
                 int Z_xy = td->in_data[out_idx];
                 
-                // RESET: I bucket vengono puliti solo quando passiamo a un NUOVO pixel
+                // Reset totale dei bucket solo all'inizio di ogni NUOVO pixel
                 memset(buckets, 0, sizeof(buckets));
                 
                 int window_size = 3;
                 int result_color = Z_xy;
-                int current_r = 0; // Raggio della finestra già elaborata
 
                 while (window_size <= S_MAX) {
-                    int target_r = window_size / 2;
+                    int r = window_size / 2; // Raggio attuale (1 per 3x3, 2 per 5x5, ecc.)
                     
-                    // AGGIUNTA INCREMENTALE: 
-                    // Aggiungiamo solo i pixel che stanno tra current_r e target_r
-                    for (int wy = -target_r; wy <= target_r; wy++) {
-                        for (int wx = -target_r; wx <= target_r; wx++) {
+                    /* AGGIUNTA INCREMENTALE DELLA CORNICE ESTERNA
+                       - Al primo ciclo (window_size == 3), aggiunge tutti i 9 pixel.
+                       - Ai cicli successivi, aggiunge solo i pixel che compongono 
+                         il perimetro del nuovo quadrato, senza rileggere il centro.
+                    */
+                    for (int wy = -r; wy <= r; wy++) {
+                        for (int wx = -r; wx <= r; wx++) {
                             
-                            // Un pixel fa parte della "nuova cornice" se almeno una 
-                            // delle sue coordinate relative è uguale al raggio target
-                            if (abs(wy) == target_r || abs(wx) == target_r) {
+                            if (window_size == 3 || abs(wy) == r || abs(wx) == r) {
                                 int ny = y + wy;
                                 int nx = x + wx;
                                 
-                                // Clamping
+                                // Clamping ai bordi
                                 if (ny < 0) ny = 0;
                                 if (ny >= td->height) ny = td->height - 1;
                                 if (nx < 0) nx = 0;
@@ -61,20 +63,17 @@ void* adaptive_median_worker(void* arg) {
                             }
                         }
                     }
-                    
-                    // Aggiorniamo il raggio corrente: questi pixel sono ora nei bucket
-                    current_r = target_r;
 
-                    // Calcolo Min, Max e Mediana (stessa logica di prima)
+                    // Calcolo statistiche sui bucket accumulati finora
                     int Z_min = -1, Z_max = -1, Z_med = -1;
                     int count_cumulativo = 0;
                     int total_elements = window_size * window_size;
-                    int target_pos = (total_elements / 2) + 1;
+                    int target_pos = (total_elements / 2) + 1; // La metà esatta
                     
                     for (int i = 0; i < 256; i++) {
                         if (buckets[i] > 0) {
                             if (Z_min == -1) Z_min = i;
-                            Z_max = i;
+                            Z_max = i; // Si aggiorna fino all'ultimo bucket pieno
                             count_cumulativo += buckets[i];
                             if (Z_med == -1 && count_cumulativo >= target_pos) {
                                 Z_med = i;
@@ -82,18 +81,19 @@ void* adaptive_median_worker(void* arg) {
                         }
                     }
                     
-                    // Logica Adaptive
+                    // Logica Adaptive (Livelli A e B)
                     if ((Z_med - Z_min) > 0 && (Z_med - Z_max) < 0) {
                         if ((Z_xy - Z_min) > 0 && (Z_xy - Z_max) < 0) {
-                            result_color = Z_xy;
+                            result_color = Z_xy; // Il pixel originale è buono
                         } else {
-                            result_color = Z_med;
+                            result_color = Z_med; // Il pixel è rumore, lo sostituiamo
                         }
-                        break; 
+                        break; // Operazione conclusa per questo pixel
                     } else {
+                        // La mediana stessa è rumore, allarga la finestra
                         window_size += 2;
                         if (window_size > S_MAX) {
-                            result_color = Z_med;
+                            result_color = Z_med; // Raggiunto il limite massimo
                             break;
                         }
                     }
