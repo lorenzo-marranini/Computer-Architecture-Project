@@ -42,7 +42,7 @@ void* adaptive_median_worker(void* arg) {
                 
                 int window_size = 3; // Always start with a 3x3 window
                 int result_color = Z_xy;
-                
+
                 // DATA-DEPENDENT LOOP: This is what causes the load imbalance!
                 while (window_size <= S_MAX) {
                     int half_w = window_size / 2;
@@ -172,7 +172,7 @@ int main(int argc, char *argv[]) {
         pthread_join(threads[i], NULL);
     }
     //amdProfilePause();
-    save_image(output_file, img_out, width, height, channels);
+    //save_image(output_file, img_out, width, height, channels);
     printf("Done. Saved to %s\n", output_file);
     
     free(img_in);
