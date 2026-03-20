@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <math.h>
+#include <AMDProfileController.h>
 
 const int S_MAX = 15; 
 
@@ -107,10 +108,14 @@ void* adaptive_median_worker(void* arg) {
                 if (!needs_full_rebuild && x < td->width - 1) {
                     // Togliamo colonna x-1, aggiungiamo x+2 rispetto al centro attuale x
                     for (int wy = -1; wy <= 1; wy++) {
-                        int ny = fmax(0, fmin(td->height - 1, y + wy));
+                        int ny = (int)fmax(0, fmin(td->height - 1, y + wy));
                         
-                        int val_out = td->in_data[(ny * td->width + fmax(0, fmin(td->width-1, x - 1))) * td->channels + c];
-                        int val_in  = td->in_data[(ny * td->width + fmax(0, fmin(td->width-1, x + 2))) * td->channels + c];
+                        // Calcolo indici colonne con cast esplicito
+                        int col_out_idx = (int)fmax(0, fmin(td->width - 1, x - 1));
+                        int col_in_idx  = (int)fmax(0, fmin(td->width - 1, x + 2));
+                        
+                        int val_out = td->in_data[(ny * td->width + col_out_idx) * td->channels + c];
+                        int val_in  = td->in_data[(ny * td->width + col_in_idx) * td->channels + c];
                         
                         hist[val_out]--;
                         hist[val_in]++;
