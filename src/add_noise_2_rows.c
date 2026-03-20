@@ -13,16 +13,16 @@ const int STRISCE_ATTIVE[10] = {
     1, // Striscia 2
     0, // Striscia 3
     1, // Striscia 4
-    0, // Striscia 5
+    1, // Striscia 5
     1, // Striscia 6
-    0, // Striscia 7
-    0, // Striscia 8
+    1, // Striscia 7
+    1, // Striscia 8
     1  // Striscia 9 (In basso)
 };
 
 // IMPOSTA QUI IL LIVELLO DI RUMORE (da 1 a 10) 
 // (Applica questa probabilità SOLO alle strisce impostate a 1)
-const int NOISE_LEVEL = 8; 
+const int NOISE_LEVEL = 6; 
 // ==========================================
 
 // Funzione per caricare un'immagine PPM
@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
     if (livello > 10) livello = 10;
     
     // Probabilità percentuale di alterare un pixel
-    int probabilita = livello * 5; 
+    int probabilita = livello * 10; 
 
     // Inizializza il generatore random
     srand(time(NULL));

@@ -40,7 +40,7 @@ void* adaptive_median_worker(void* arg) {
                 int out_idx = (y * td->width + x) * td->channels + c;
                 int Z_xy = td->in_data[out_idx]; // The current pixel color
                 
-                int window_size = 3; // Always start with a 3x3 window
+                int window_size = 5; // Always start with a 3x3 window
                 int result_color = Z_xy;
 
                 // DATA-DEPENDENT LOOP: This is what causes the load imbalance!

@@ -7,7 +7,7 @@
 // IMPOSTA QUI IL LIVELLO DI RUMORE (da 1 a 10)
 // 1 = 5% di pixel corrotti
 // 10 = 50% di pixel corrotti
-const int NOISE_LEVEL = 5; 
+const int NOISE_LEVEL = 6; 
 // ==========================================
 
 // Funzione per caricare un'immagine PPM (ignorando eventuali commenti)

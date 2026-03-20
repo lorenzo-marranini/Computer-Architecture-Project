@@ -220,7 +220,7 @@ int main(int argc, char *argv[]) {
         total_larger += td[i].count_larger;
     }
 
-    save_image(output_file, img_out, width, height, channels);
+    //save_image(output_file, img_out, width, height, channels);
     
     // Stampa del Report Statistico
     long long total_pixels = total_3x3 + total_5x5 + total_7x7 + total_larger;
