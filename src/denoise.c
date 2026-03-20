@@ -136,6 +136,7 @@ void save_image(const char *filename, unsigned char *data, int w, int h, int cha
 }
 
 int main(int argc, char *argv[]) {
+    amdProfileResume();
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <input.ppm> [output.ppm] [threads]\n", argv[0]);
         return 1;
@@ -153,7 +154,7 @@ int main(int argc, char *argv[]) {
     pthread_t threads[num_threads];
     ThreadData td[num_threads];
     int rows_per_thread = height / num_threads;
-    amdProfileResume();
+    //amdProfileResume();
     printf("Applying ADAPTIVE MEDIAN FILTER with %d threads...\n", num_threads);
 
     for (int i = 0; i < num_threads; i++) {
@@ -170,7 +171,7 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], NULL);
     }
-    amdProfilePause();
+    //amdProfilePause();
     save_image(output_file, img_out, width, height, channels);
     printf("Done. Saved to %s\n", output_file);
     
