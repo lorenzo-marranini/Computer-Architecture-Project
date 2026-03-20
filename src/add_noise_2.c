@@ -94,13 +94,15 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < totale_pixel; i++) {
         int rand_val = rand() % 100;
 
+        // Se il numero è minore della probabilità, il pixel diventa rumore
         if (rand_val < probabilita) {
-            int idx = i * channels;
+            int idx = (y * width + x) * channels;
             
-            // Rumore a colori casuali
-            img[idx]     = rand() % 256; // Red
-            img[idx + 1] = rand() % 256; // Green
-            img[idx + 2] = rand() % 256; // Blue
+            // Per ogni canale RGB, decidiamo a caso se spararlo a 0 o 255
+            // Questo crea rumore colorato estremo (non solo bianco/nero)
+            img[idx]     = (rand() % 2 == 1) ? 255 : 0; // Red
+            img[idx + 1] = (rand() % 2 == 1) ? 255 : 0; // Green
+            img[idx + 2] = (rand() % 2 == 1) ? 255 : 0; // Blue
             
             pixel_corrotti++;
         }
