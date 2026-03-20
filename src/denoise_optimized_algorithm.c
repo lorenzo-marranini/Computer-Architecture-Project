@@ -17,10 +17,14 @@ typedef struct {
     int end_row;
 } ThreadData;
 
-// Funzione core: estrae min, max e mediana dall'istogramma (Calendar Sort)
+// Estrae min, max e mediana dall'istogramma
 void get_stats_from_hist(int hist[256], int total_pixels, int *min, int *max, int *med) {
     int count = 0;
     int found_min = -1;
+    *med = -1; // Inizializzazione di sicurezza
+    *min = 0;
+    *max = 255;
+
     for (int i = 0; i < 256; i++) {
         if (hist[i] > 0) {
             if (found_min == -1) found_min = i;
@@ -31,17 +35,19 @@ void get_stats_from_hist(int hist[256], int total_pixels, int *min, int *max, in
             }
         }
     }
-    *min = found_min;
+    *min = (found_min == -1) ? 0 : found_min;
+    // Se non troviamo la mediana (istogramma vuoto, non dovrebbe succedere), mettiamo 128
+    if (*med == -1) *med = 128; 
 }
 
-// Funzione di utilità per riempire l'istogramma da zero per una data finestra
+// Riempie l'istogramma da zero per una data finestra
 void fill_histogram(int hist[256], ThreadData* td, int x, int y, int c, int size) {
     memset(hist, 0, 256 * sizeof(int));
     int half = size / 2;
     for (int wy = -half; wy <= half; wy++) {
         for (int wx = -half; wx <= half; wx++) {
-            int ny = fmax(0, fmin(td->height - 1, y + wy));
-            int nx = fmax(0, fmin(td->width - 1, x + wx));
+            int ny = (int)fmax(0, fmin(td->height - 1, y + wy));
+            int nx = (int)fmax(0, fmin(td->width - 1, x + wx));
             hist[td->in_data[(ny * td->width + nx) * td->channels + c]]++;
         }
     }
@@ -50,11 +56,11 @@ void fill_histogram(int hist[256], ThreadData* td, int x, int y, int c, int size
 void* adaptive_median_worker(void* arg) {
     ThreadData* td = (ThreadData*)arg;
     int hist[256];
-    int needs_full_rebuild = 1; // Flag per resettare l'istogramma se la finestra è cresciuta
+    int needs_full_rebuild = 1; 
 
     for (int y = td->start_row; y < td->end_row; y++) {
         for (int c = 0; c < td->channels; c++) {
-            needs_full_rebuild = 1; // Reset all'inizio di ogni riga/canale
+            needs_full_rebuild = 1; 
 
             for (int x = 0; x < td->width; x++) {
                 int current_idx = (y * td->width + x) * td->channels + c;
@@ -67,7 +73,7 @@ void* adaptive_median_worker(void* arg) {
                 }
 
                 int win_size = 3;
-                int z_min, z_max, z_med;
+                int z_min = 0, z_max = 255, z_med = 128; // Inizializzazione per evitare warning
                 int final_pixel = z_xy;
 
                 // 2. LOGICA ADAPTIVE (INCREMENTALE)
@@ -79,7 +85,7 @@ void* adaptive_median_worker(void* arg) {
                         else final_pixel = z_med;
                         break;
                     } else {
-                        // Se dobbiamo allargare, l'istogramma 3x3 verrà "sporcato"
+                        // Allargando, l'istogramma 3x3 viene "sporcato"
                         needs_full_rebuild = 1; 
                         
                         int old_half = win_size / 2;
@@ -94,23 +100,21 @@ void* adaptive_median_worker(void* arg) {
                         for (int i = -new_half; i <= new_half; i++) {
                             for (int j = -new_half; j <= new_half; j++) {
                                 if (abs(i) > old_half || abs(j) > old_half) {
-                                    int ny = fmax(0, fmin(td->height - 1, y + i));
-                                    int nx = fmax(0, fmin(td->width - 1, x + j));
+                                    int ny = (int)fmax(0, fmin(td->height - 1, y + i));
+                                    int nx = (int)fmax(0, fmin(td->width - 1, x + j));
                                     hist[td->in_data[(ny * td->width + nx) * td->channels + c]]++;
                                 }
                             }
                         }
                     }
                 }
-                td->out_data[current_idx] = final_pixel;
+                td->out_data[current_idx] = (unsigned char)final_pixel;
 
-                // 3. SLIDING WINDOW (Solo se l'istogramma è ancora 3x3 e non siamo a fine riga)
+                // 3. SLIDING WINDOW (Solo se l'istogramma è rimasto 3x3)
                 if (!needs_full_rebuild && x < td->width - 1) {
-                    // Togliamo colonna x-1, aggiungiamo x+2 rispetto al centro attuale x
                     for (int wy = -1; wy <= 1; wy++) {
                         int ny = (int)fmax(0, fmin(td->height - 1, y + wy));
                         
-                        // Calcolo indici colonne con cast esplicito
                         int col_out_idx = (int)fmax(0, fmin(td->width - 1, x - 1));
                         int col_in_idx  = (int)fmax(0, fmin(td->width - 1, x + 2));
                         
@@ -127,23 +131,25 @@ void* adaptive_median_worker(void* arg) {
     return NULL;
 }
 
+// Caricamento immagine (PPM P5/P6)
 unsigned char* load_image(const char *filename, int *w, int *h, int *channels) {
     FILE *f = fopen(filename, "rb");
     if (!f) return NULL;
     char magic[3];
-    fscanf(f, "%2s", magic);
+    if (fscanf(f, "%2s", magic) != 1) { fclose(f); return NULL; }
     if (strcmp(magic, "P5") == 0) *channels = 1;
     else if (strcmp(magic, "P6") == 0) *channels = 3;
     else { fclose(f); return NULL; }
     int max_val;
-    fscanf(f, "%d %d %d", w, h, &max_val);
+    if (fscanf(f, "%d %d %d", w, h, &max_val) != 3) { fclose(f); return NULL; }
     fgetc(f); 
     unsigned char *data = malloc(*w * *h * *channels);
-    fread(data, 1, *w * *h * *channels, f);
+    if (data) fread(data, 1, *w * *h * *channels, f);
     fclose(f);
     return data;
 }
 
+// Salvataggio immagine
 void save_image(const char *filename, unsigned char *data, int w, int h, int channels) {
     FILE *f = fopen(filename, "wb");
     if (!f) return;
@@ -166,13 +172,16 @@ int main(int argc, char *argv[]) {
     
     int width, height, channels;
     unsigned char *img_in = load_image(input_file, &width, &height, &channels);
-    if (!img_in) return 1;
+    if (!img_in) {
+        fprintf(stderr, "Error loading image %s\n", input_file);
+        return 1;
+    }
     
     unsigned char *img_out = malloc(width * height * channels);
     pthread_t threads[num_threads];
     ThreadData td[num_threads];
     int rows_per_thread = height / num_threads;
-    //amdProfileResume();
+
     printf("Applying ADAPTIVE MEDIAN FILTER with %d threads...\n", num_threads);
 
     for (int i = 0; i < num_threads; i++) {
@@ -189,7 +198,7 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], NULL);
     }
-    //amdProfilePause();
+
     save_image(output_file, img_out, width, height, channels);
     printf("Done. Saved to %s\n", output_file);
     
