@@ -113,11 +113,6 @@ void* adaptive_median_worker(void* arg) {
                                 result_color = Z_med; 
                             }
                             
-                            // STATISTICA: Salviamo la dimensione
-                            if (window_size == 5) td->count_5x5++;
-                            else if (window_size == 7) td->count_7x7++;
-                            else if (window_size == 9) td->count_9x9++;
-                            else td->count_larger++;
                             
                             break; 
                         } else {
@@ -125,11 +120,6 @@ void* adaptive_median_worker(void* arg) {
                             if (window_size > S_MAX) {
                                 result_color = Z_med; 
                                 
-                                // STATISTICA (Fallback)
-                                if (S_MAX == 5) td->count_5x5++;
-                                else if (S_MAX == 7) td->count_7x7++;
-                                else if (S_MAX == 9) td->count_9x9++;
-                                else td->count_larger++;
                                 
                                 break;
                             }
@@ -170,7 +160,7 @@ void save_image(const char *filename, unsigned char *data, int w, int h, int cha
 }
 
 int main(int argc, char *argv[]) {
-    amdProfileResume(); // START UPROF
+    //amdProfileResume(); // START UPROF
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <input.ppm> [output.ppm] [threads]\n", argv[0]);
         return 1;
@@ -190,7 +180,7 @@ int main(int argc, char *argv[]) {
     unsigned char *img_out = malloc(width * height * channels);
     
     atomic_int current_global_row = 0;
-    int chunk_size = 64; 
+    int chunk_size = 32; 
     
     pthread_t threads[num_threads];
     ThreadData td[num_threads];
@@ -206,42 +196,22 @@ int main(int argc, char *argv[]) {
         td[i].chunk_size = chunk_size;
         td[i].global_row_counter = &current_global_row;
         
-        // Inizializza i contatori
-        td[i].count_5x5 = 0;
-        td[i].count_7x7 = 0;
-        td[i].count_9x9 = 0;
-        td[i].count_larger = 0;
+        
         
         pthread_create(&threads[i], NULL, adaptive_median_worker, &td[i]);
     }
 
-    long long total_5x5 = 0, total_7x7 = 0, total_9x9 = 0, total_larger = 0;
 
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], NULL);
         
-        // Aggrega i totali
-        total_5x5 += td[i].count_5x5;
-        total_7x7 += td[i].count_7x7;
-        total_9x9 += td[i].count_9x9;
-        total_larger += td[i].count_larger;
     }
 
-    save_image(output_file, img_out, width, height, channels);
-    
-    // Stampa del Report Statistico
-    long long total_pixels = total_5x5 + total_7x7 + total_9x9 + total_larger;
-    printf("\n--- STATISTICHE ADAPTIVE MEDIAN FILTER ---\n");
-    printf("Canali elaborati totali : %lld\n", total_pixels);
-    printf("Blocchi 5x5  utilizzati : %lld (%.2f%%)\n", total_5x5, (double)total_5x5 / total_pixels * 100.0);
-    printf("Blocchi 7x7  utilizzati : %lld (%.2f%%)\n", total_7x7, (double)total_7x7 / total_pixels * 100.0);
-    printf("Blocchi 9x9  utilizzati : %lld (%.2f%%)\n", total_9x9, (double)total_9x9 / total_pixels * 100.0);
-    printf("Blocchi >9x9 utilizzati : %lld (%.2f%%)\n", total_larger, (double)total_larger / total_pixels * 100.0);
-    printf("------------------------------------------\n\n");
+    //save_image(output_file, img_out, width, height, channels);
     
     printf("Completato. Salvato in %s\n", output_file);
     
-    amdProfilePause(); // STOP UPROF
+    //amdProfilePause(); // STOP UPROF
     
     free(img_in);
     free(img_out);

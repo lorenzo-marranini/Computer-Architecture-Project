@@ -7,7 +7,7 @@ LDFLAGS = -lm -L/opt/amduprof/lib/x64/shared -Wl,-rpath=/opt/amduprof/lib/x64/sh
 SRC_DIR = src
 
 # Executable names
-TARGETS = add_noise blur denoise dither denoise_calendar_3_lock denoise_calendar_3_lock_debug add_noise_2_rows  dither_opt
+TARGETS = add_noise denoise_calendar_4 denoise denoise_calendar_3_lock denoise_calendar_3_lock_debug denoise_calendar_3 add_noise_2_rows  
 
 # Default target runs when you just type 'make'
 .PHONY: all clean
@@ -19,13 +19,13 @@ add_noise: $(SRC_DIR)/add_noise.c
 add_noise_2_rows: $(SRC_DIR)/add_noise_2_rows.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
-# Compile blur (from gauss.c)
-blur: $(SRC_DIR)/gauss.c
+
+denoise_calendar_4: $(SRC_DIR)/denoise_calendar_4.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
-
-
 # Compile denoise
 denoise_calendar_3_lock: $(SRC_DIR)/denoise_calendar_3_lock.c
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
+denoise_calendar_3: $(SRC_DIR)/denoise_calendar_3.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 denoise_calendar_3_lock_debug: $(SRC_DIR)/denoise_calendar_3_lock_debug.c
@@ -34,13 +34,6 @@ denoise_calendar_3_lock_debug: $(SRC_DIR)/denoise_calendar_3_lock_debug.c
 denoise: $(SRC_DIR)/denoise.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
-# Compile dither (from main.c)
-dither: $(SRC_DIR)/main.c
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
-
-# Compile optimized dither (from main_optimized.c)
-dither_opt: $(SRC_DIR)/main_optimized.c
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 # Clean up compiled binaries
 clean:
