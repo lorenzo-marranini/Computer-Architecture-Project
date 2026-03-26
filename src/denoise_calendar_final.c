@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
-#include <stdatomic.h> // LIBRERIA PER LE OPERAZIONI ATOMICHE
+#include <stdatomic.h>
 #include <AMDProfileController.h>
 
 const int S_MAX = 15; 
@@ -14,17 +14,15 @@ typedef struct {
     int height;
     int channels;
     int chunk_size;
-    atomic_int *global_row_counter; // PUNTATORE AL CONTATORE ATOMICO
-    
-    // CONTATORI LOCALI PER LE STATISTICHE DEL THREAD
-    long long count_5x5;
-    long long count_7x7;
-    long long count_9x9;
-    long long count_larger;
+    atomic_int *global_row_counter; 
 } ThreadData;
 
-// MACRO per i bordi del Calendar Sort
-#define ADD_PIXEL(wy, wx) \
+// 
+// No need to perfor bound check
+#define ADD_PIXEL_SAFE(wy, wx) \
+    buckets[td->in_data[( (y + (wy)) * td->width + (x + (wx)) ) * td->channels + c]]++
+
+#define ADD_PIXEL_CLAMPED(wy, wx) \
     do { \
         int ny = y + (wy); \
         int nx = x + (wx); \
@@ -32,31 +30,30 @@ typedef struct {
         if (ny >= td->height) ny = td->height - 1; \
         if (nx < 0) nx = 0; \
         if (nx >= td->width) nx = td->width - 1; \
-        int n_idx = (ny * td->width + nx) * td->channels + c; \
-        buckets[td->in_data[n_idx]]++; \
+        buckets[td->in_data[(ny * td->width + nx) * td->channels + c]]++; \
     } while(0)
 
-// Il Worker Lock-Free
+
 void* adaptive_median_worker(void* arg) {
     ThreadData* td = (ThreadData*)arg;
     int buckets[256];
     
+    int max_radius = S_MAX / 2; 
+    
     while (1) {
-        // --- SEZIONE LOCK-FREE ---
         int start_row = atomic_fetch_add(td->global_row_counter, td->chunk_size);
-        
-        if (start_row >= td->height) {
-            break;
-        }
+        if (start_row >= td->height) break;
         
         int end_row = start_row + td->chunk_size;
-        if (end_row > td->height) {
-            end_row = td->height;
-        }
-        // -------------------------
+        if (end_row > td->height) end_row = td->height;
 
         for (int y = start_row; y < end_row; y++) {
             for (int x = 0; x < td->width; x++) {
+                
+                //if the pixel is far enough from borders, we are sure that we do not need to perform bound checks
+                int is_safe = (y >= max_radius && y < td->height - max_radius && 
+                               x >= max_radius && x < td->width - max_radius);
+
                 for (int c = 0; c < td->channels; c++) {
                     
                     int out_idx = (y * td->width + x) * td->channels + c;
@@ -64,36 +61,54 @@ void* adaptive_median_worker(void* arg) {
                     
                     memset(buckets, 0, sizeof(buckets));
                     
-                    // PARTIAMO DIRETTAMENTE DA 5x5
-                    int window_size = 5;
+                    int window_size = 3;
                     int result_color = Z_xy;
 
                     while (window_size <= S_MAX) {
                         
-                        // CORREZIONE: Il caso base ora è 5x5 (da -2 a 2)
-                        if (window_size == 5) {
-                            for (int wy = -2; wy <= 2; wy++) {
-                                for (int wx = -2; wx <= 2; wx++) {
-                                    ADD_PIXEL(wy, wx);
+                        int r = window_size / 2;
+                        
+                        if (is_safe) {
+                            if (window_size == 3) {
+                                for (int wy = -1; wy <= 1; wy++) {
+                                    for (int wx = -1; wx <= 1; wx++) ADD_PIXEL_SAFE(wy, wx);
+                                }
+                            } else {
+                                //we mantain original bucket
+                                //rows
+                                for (int wx = -r; wx <= r; wx++) {
+                                    ADD_PIXEL_SAFE(-r, wx); 
+                                    ADD_PIXEL_SAFE(r, wx);  
+                                }
+                                //columns
+                                for (int wy = -r + 1; wy <= r - 1; wy++) {
+                                    ADD_PIXEL_SAFE(wy, -r);
+                                    ADD_PIXEL_SAFE(wy, r);                                 
                                 }
                             }
                         } else {
-                            // Espansione: aggiunge solo il perimetro
-                            int r = window_size / 2;
-                            for (int wx = -r; wx <= r; wx++) {
-                                ADD_PIXEL(-r, wx); 
-                                ADD_PIXEL(r, wx);  
-                            }
-                            for (int wy = -r + 1; wy <= r - 1; wy++) {
-                                ADD_PIXEL(wy, -r); 
-                                ADD_PIXEL(wy, r);  
+                            //we need to check bounds
+                            if (window_size == 3) {
+                                for (int wy = -1; wy <= 1; wy++) {
+                                    for (int wx = -1; wx <= 1; wx++) ADD_PIXEL_CLAMPED(wy, wx);
+                                }
+                            } else {
+                                for (int wx = -r; wx <= r; wx++) {
+                                    ADD_PIXEL_CLAMPED(-r, wx); 
+                                    ADD_PIXEL_CLAMPED(r, wx);  
+                                }
+                                for (int wy = -r + 1; wy <= r - 1; wy++) {
+                                    ADD_PIXEL_CLAMPED(wy, -r); 
+                                    ADD_PIXEL_CLAMPED(wy, r);  
+                                }
                             }
                         }
 
+                        
                         int Z_min = -1, Z_max = -1, Z_med = -1;
                         int count_cumulativo = 0;
                         int target_pos = ((window_size * window_size) / 2) + 1; 
-                        
+                        // calculate Z from buckets
                         for (int i = 0; i < 256; i++) {
                             if (buckets[i] > 0) {
                                 if (Z_min == -1) Z_min = i;
@@ -105,22 +120,20 @@ void* adaptive_median_worker(void* arg) {
                             }
                         }
                         
-                        // Logica Livello A e B
+                        // is the median noise?
                         if ((Z_med - Z_min) > 0 && (Z_med - Z_max) < 0) {
+                            // is the current pixel noise?
                             if ((Z_xy - Z_min) > 0 && (Z_xy - Z_max) < 0) {
                                 result_color = Z_xy; 
                             } else {
                                 result_color = Z_med; 
                             }
-                            
-                            
                             break; 
                         } else {
+                            
                             window_size += 2;
                             if (window_size > S_MAX) {
                                 result_color = Z_med; 
-                                
-                                
                                 break;
                             }
                         }
@@ -160,14 +173,13 @@ void save_image(const char *filename, unsigned char *data, int w, int h, int cha
 }
 
 int main(int argc, char *argv[]) {
-    //amdProfileResume(); // START UPROF
+    // amdProfileResume();
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <input.ppm> [output.ppm] [threads]\n", argv[0]);
         return 1;
     }
     
     const char *input_file = argv[1];
-    const char *output_file = (argc > 2) ? argv[2] : "output.ppm";
     int num_threads = (argc > 3) ? atoi(argv[3]) : 6;
     
     int width, height, channels;
@@ -179,13 +191,14 @@ int main(int argc, char *argv[]) {
     
     unsigned char *img_out = malloc(width * height * channels);
     
+    // The Atomic Load Balancer is active
     atomic_int current_global_row = 0;
-    int chunk_size = 32; 
+    int chunk_size = 16; 
     
     pthread_t threads[num_threads];
     ThreadData td[num_threads];
 
-    printf("Filtro Mediano Adattivo: Calendar Sort Lock-Free (%d thread, chunk=%d)...\n", num_threads, chunk_size);
+    printf("Filtro Mediano Adattivo: Naive Bucket + Dynamic Sched (%d thread, chunk=%d)...\n", num_threads, chunk_size);
 
     for (int i = 0; i < num_threads; i++) {
         td[i].in_data = img_in;
@@ -197,21 +210,19 @@ int main(int argc, char *argv[]) {
         td[i].global_row_counter = &current_global_row;
         
         
-        
         pthread_create(&threads[i], NULL, adaptive_median_worker, &td[i]);
     }
 
 
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], NULL);
-        
     }
 
     //save_image(output_file, img_out, width, height, channels);
     
-    printf("Completato. Salvato in %s\n", output_file);
     
-    //amdProfilePause(); // STOP UPROF
+    
+    // amdProfilePause();
     
     free(img_in);
     free(img_out);

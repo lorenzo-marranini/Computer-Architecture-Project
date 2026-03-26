@@ -4,7 +4,6 @@
 #include <string.h>
 #include <AMDProfileController.h>
 
-// Dimensione massima della finestra per il filtro adattivo (deve essere dispari).
 const int S_MAX = 15; 
 
 typedef struct {
@@ -17,39 +16,33 @@ typedef struct {
     int end_row;
 } ThreadData;
 
-// Il Worker che utilizza la logica Calendar Sort (Counting Sort)
 void* adaptive_median_worker(void* arg) {
     ThreadData* td = (ThreadData*)arg;
-    
-    // Array di bucket per i 256 livelli di grigio (0-255)
-    // Allocato una volta per thread per massimizzare le prestazioni
     int buckets[256];
     
     for (int y = td->start_row; y < td->end_row; y++) {
         for (int x = 0; x < td->width; x++) {
-            for (int c = 0; c < td->channels; c++) { 
+            for (int c = 0; c < td->channels; c++) {
                 
                 int out_idx = (y * td->width + x) * td->channels + c;
-                int Z_xy = td->in_data[out_idx]; 
+                int Z_xy = td->in_data[out_idx];
                 
-                int window_size = 3; 
+                int window_size = 3;
                 int result_color = Z_xy;
-                
-                // LOOP ADATTIVO: Aumenta la finestra se la mediana è rumore
+
                 while (window_size <= S_MAX) {
-                    // Reset dei bucket per la nuova finestra
+                    
+                    // NAIVE APPROACH: Clear the bucket and read EVERYTHING again 
+                    // every single time the window expands.
                     memset(buckets, 0, sizeof(buckets));
                     
-                    int half_w = window_size / 2;
-                    int total_elements = window_size * window_size;
-                    
-                    // Riempimento bucket (Distribuzione Calendar Sort)
-                    for (int wy = -half_w; wy <= half_w; wy++) {
-                        for (int wx = -half_w; wx <= half_w; wx++) {
+                    int r = window_size / 2;
+                    for (int wy = -r; wy <= r; wy++) {
+                        for (int wx = -r; wx <= r; wx++) {
+                            
+                            // Bounds checking executed for every single pixel
                             int ny = y + wy;
                             int nx = x + wx;
-                            
-                            // Clamping ai bordi
                             if (ny < 0) ny = 0;
                             if (ny >= td->height) ny = td->height - 1;
                             if (nx < 0) nx = 0;
@@ -59,21 +52,17 @@ void* adaptive_median_worker(void* arg) {
                             buckets[td->in_data[n_idx]]++;
                         }
                     }
-                    
-                    // Estrazione Min, Max e Mediana dai bucket senza ordinamento esplicito
+
+                    // Calculate statistics on the buckets
                     int Z_min = -1, Z_max = -1, Z_med = -1;
                     int count_cumulativo = 0;
-                    int target_pos = (total_elements / 2) + 1; // Posizione della mediana
+                    int total_elements = window_size * window_size;
+                    int target_pos = (total_elements / 2) + 1; 
                     
                     for (int i = 0; i < 256; i++) {
                         if (buckets[i] > 0) {
-                            // Il primo valore trovato è il minimo
                             if (Z_min == -1) Z_min = i;
-                            
-                            // L'ultimo valore trovato (aggiornato continuamente) sarà il massimo
-                            Z_max = i;
-                            
-                            // Calcolo della mediana cumulativa
+                            Z_max = i; 
                             count_cumulativo += buckets[i];
                             if (Z_med == -1 && count_cumulativo >= target_pos) {
                                 Z_med = i;
@@ -81,27 +70,18 @@ void* adaptive_median_worker(void* arg) {
                         }
                     }
                     
-                    // LIVELLO A: La mediana è rumore?
-                    int A1 = Z_med - Z_min;
-                    int A2 = Z_med - Z_max;
-                    
-                    if (A1 > 0 && A2 < 0) {
-                        // LIVELLO B: Il pixel centrale è rumore?
-                        int B1 = Z_xy - Z_min;
-                        int B2 = Z_xy - Z_max;
-                        
-                        if (B1 > 0 && B2 < 0) {
-                            result_color = Z_xy; // Pixel ok
+                    // Adaptive Logic (Level A and B)
+                    if ((Z_med - Z_min) > 0 && (Z_med - Z_max) < 0) {
+                        if ((Z_xy - Z_min) > 0 && (Z_xy - Z_max) < 0) {
+                            result_color = Z_xy; 
                         } else {
-                            result_color = Z_med; // Sostituisci con mediana
+                            result_color = Z_med; 
                         }
-                        break; // Uscita dal loop window_size
+                        break; 
                     } else {
-                        // Mediana fallita, espandi la finestra
                         window_size += 2;
-                        
                         if (window_size > S_MAX) {
-                            result_color = Z_med; // Limite raggiunto, usa l'ultima mediana
+                            result_color = Z_med; 
                             break;
                         }
                     }
@@ -140,7 +120,7 @@ void save_image(const char *filename, unsigned char *data, int w, int h, int cha
 }
 
 int main(int argc, char *argv[]) {
-    amdProfileResume();
+    // amdProfileResume();
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <input.ppm> [output.ppm] [threads]\n", argv[0]);
         return 1;
@@ -162,7 +142,7 @@ int main(int argc, char *argv[]) {
     ThreadData td[num_threads];
     int rows_per_thread = height / num_threads;
 
-    printf("Applicazione FILTRO MEDIANO ADATTIVO (Calendar Sort) con %d thread...\n", num_threads);
+    printf("Filtro Mediano Adattivo: Naive Bucket Sort (%d thread)...\n", num_threads);
 
     for (int i = 0; i < num_threads; i++) {
         td[i].in_data = img_in;
@@ -171,6 +151,7 @@ int main(int argc, char *argv[]) {
         td[i].height = height;
         td[i].channels = channels;
         td[i].start_row = i * rows_per_thread;
+        // The last thread cleans up any remaining rows
         td[i].end_row = (i == num_threads - 1) ? height : (i + 1) * rows_per_thread;
         pthread_create(&threads[i], NULL, adaptive_median_worker, &td[i]);
     }
@@ -179,8 +160,10 @@ int main(int argc, char *argv[]) {
         pthread_join(threads[i], NULL);
     }
 
-    save_image(output_file, img_out, width, height, channels);
+    //save_image(output_file, img_out, width, height, channels);
     printf("Completato. Salvato in %s\n", output_file);
+    
+    // amdProfilePause();
     
     free(img_in);
     free(img_out);

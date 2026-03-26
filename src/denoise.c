@@ -172,7 +172,7 @@ int main(int argc, char *argv[]) {
         pthread_join(threads[i], NULL);
     }
     //amdProfilePause();
-    //save_image(output_file, img_out, width, height, channels);
+    save_image(output_file, img_out, width, height, channels);
     printf("Done. Saved to %s\n", output_file);
     
     free(img_in);
