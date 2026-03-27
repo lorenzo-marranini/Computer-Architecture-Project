@@ -144,7 +144,6 @@ void save_image(const char *filename, unsigned char *data, int w, int h, int cha
 }
 
 int main(int argc, char *argv[]) {
-    // amdProfileResume();
     
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <input.ppm> [output.ppm] [threads]\n", argv[0]);
@@ -171,6 +170,9 @@ int main(int argc, char *argv[]) {
     ThreadData td[num_threads];
 
     printf("Filtro Mediano Adattivo: Naive Bucket + Dynamic Sched (%d thread, chunk=%d)...\n", num_threads, chunk_size);
+    struct timespec start_time, end_time;
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    //amdProfileResume();
 
     for (int i = 0; i < num_threads; i++) {
         td[i].in_data = img_in;
@@ -187,10 +189,18 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], NULL);
     }
-
-    //save_image(output_file, img_out, width, height, channels);
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
     
-    // amdProfilePause();
+    // Calculate elapsed time in seconds
+    double elapsed = (end_time.tv_sec - start_time.tv_sec) + 
+                     (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
+
+    // We print a specific tag "COMPUTE_TIME:" so Python can find it easily
+    
+    //amdProfilePause();
+    printf("COMPUTE_TIME: %f\n", elapsed);
+    save_image(output_file, img_out, width, height, channels);
+    
     
     free(img_in);
     free(img_out);

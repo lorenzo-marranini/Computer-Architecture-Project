@@ -143,7 +143,8 @@ int main(int argc, char *argv[]) {
     int rows_per_thread = height / num_threads;
 
     printf("Filtro Mediano Adattivo: Naive Bucket Sort (%d thread)...\n", num_threads);
-
+    struct timespec start_time, end_time;
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
     for (int i = 0; i < num_threads; i++) {
         td[i].in_data = img_in;
         td[i].out_data = img_out;
@@ -159,8 +160,15 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], NULL);
     }
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
+    save_image(output_file, img_out, width, height, channels);
+    
+    // Calculate elapsed time in seconds
+    double elapsed = (end_time.tv_sec - start_time.tv_sec) + 
+                     (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
 
-    //save_image(output_file, img_out, width, height, channels);
+    // We print a specific tag "COMPUTE_TIME:" so Python can find it easily
+    printf("COMPUTE_TIME: %f\n", elapsed);
     printf("Completato. Salvato in %s\n", output_file);
     
     // amdProfilePause();

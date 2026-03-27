@@ -1,6 +1,6 @@
 # Compiler and flags
 CC = gcc
-CFLAGS = -O3 -march=native -Wall -Wextra -g -pthread -I/opt/amduprof/include
+CFLAGS = -O3 -march=native -mtune=native -Wall -Wextra -g -pthread -I/opt/amduprof/include -flto -funroll-loops
 LDFLAGS = -lm -L/opt/amduprof/lib/x64/shared -Wl,-rpath=/opt/amduprof/lib/x64/shared -lAMDProfileController
 
 # Directories

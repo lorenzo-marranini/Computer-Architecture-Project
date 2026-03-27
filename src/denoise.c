@@ -136,7 +136,6 @@ void save_image(const char *filename, unsigned char *data, int w, int h, int cha
 }
 
 int main(int argc, char *argv[]) {
-    amdProfileResume();
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <input.ppm> [output.ppm] [threads]\n", argv[0]);
         return 1;
@@ -156,7 +155,8 @@ int main(int argc, char *argv[]) {
     int rows_per_thread = height / num_threads;
     //amdProfileResume();
     printf("Applying ADAPTIVE MEDIAN FILTER with %d threads...\n", num_threads);
-
+    struct timespec start_time, end_time;
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
     for (int i = 0; i < num_threads; i++) {
         td[i].in_data = img_in;
         td[i].out_data = img_out;
@@ -171,10 +171,15 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], NULL);
     }
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
     //amdProfilePause();
     save_image(output_file, img_out, width, height, channels);
     printf("Done. Saved to %s\n", output_file);
-    
+    double elapsed = (end_time.tv_sec - start_time.tv_sec) + 
+                     (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
+
+    // We print a specific tag "COMPUTE_TIME:" so Python can find it easily
+    printf("COMPUTE_TIME: %f\n", elapsed);
     free(img_in);
     free(img_out);
     return 0;
