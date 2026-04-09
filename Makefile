@@ -7,18 +7,23 @@ LDFLAGS = -lm -L/opt/amduprof/lib/x64/shared -Wl,-rpath=/opt/amduprof/lib/x64/sh
 SRC_DIR = src
 
 # Executable names
-TARGETS = add_noise denoise_calendar_final denoise denoise_calendar_3_lock denoise_calendar_3_lock_debug denoise_calendar_3 add_noise_2_rows  
+TARGETS = add_noise denoise_calendar_final denoise denoise_calendar_3_lock denoise_calendar_3_lock_debug denoise_calendar_3 add_noise_2_rows  denoise_calendar_final_float denoise_float_useless
 
 # Default target runs when you just type 'make'
 .PHONY: all clean
 all: $(TARGETS)
 
 # Compile add_noise
+denoise_float_useless: $(SRC_DIR)/denoise_float_useless.c
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
+
 add_noise: $(SRC_DIR)/add_noise.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 add_noise_2_rows: $(SRC_DIR)/add_noise_2_rows.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
+denoise_calendar_final_float: $(SRC_DIR)/denoise_calendar_final_float.c
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 denoise_calendar_final: $(SRC_DIR)/denoise_calendar_final.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
