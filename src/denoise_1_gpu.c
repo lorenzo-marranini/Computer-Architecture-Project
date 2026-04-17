@@ -1,3 +1,6 @@
+// Versione Ottimizzata con Global Memory RESTRICT
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,7 +25,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 #define ADD_PIXEL_SAFE_CUDA(wy, wx) \
     buckets[in_data[( (y + (wy)) * width + (x + (wx)) ) * channels + c]]++
 
-    
+
 #define ADD_PIXEL_CLAMPED_CUDA(wy, wx) \
     do { \
         /* Uso delle funzioni matematiche native max/min di CUDA per evitare branch (if) */ \
@@ -212,6 +215,12 @@ int main(int argc, char *argv[]) {
     cudaCheckError(cudaPeekAtLastError());
     cudaCheckError(cudaDeviceSynchronize());
     
+    // Calcola e stampa tempo
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Tempo di esecuzione GPU: %.3f ms\n", milliseconds);
+    
+
     // Trasferimento Device -> Host
     cudaCheckError(cudaMemcpy(h_img_out, d_img_out, img_size, cudaMemcpyDeviceToHost));
     
