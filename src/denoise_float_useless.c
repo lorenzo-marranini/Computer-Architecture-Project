@@ -23,21 +23,15 @@ typedef struct {
 void* adaptive_median_worker(void* arg) {
     ThreadData* td = (ThreadData*)arg;
     
-    // --- THE PROFESSOR'S TEST: SMT INTERFERENCE ---
-    // Odd threads become "Dummy FPU Threads". They do NO image processing.
     if (td->thread_id % 2 != 0) {
-        
-        // We use 'volatile' so the compiler doesn't realize this math is 
-        // useless and delete it during optimization.
         volatile float useless_fpu_burner = 1.0001f;
         
-        // Keep burning FPU cycles until the even threads finish the image
-        while (atomic_load(td->global_row_counter) < td->height) {
+        while (*td->global_row_counter < td->height) {
             for(int i = 0; i < 50000000; i++) {
                 useless_fpu_burner = useless_fpu_burner * 1.000001f + 0.000001f; 
             }
         }
-        return NULL; // Exit thread without writing any pixels
+        return NULL; 
     }
 
     // --- STANDARD INTEGER ALU LOGIC FOR EVEN THREADS ---
@@ -237,7 +231,7 @@ int main(int argc, char *argv[]) {
     }
 
     clock_gettime(CLOCK_MONOTONIC, &end_time);
-    save_image(output_file, img_out, width, height, channels);
+    //save_image(output_file, img_out, width, height, channels);
     
     double elapsed = (end_time.tv_sec - start_time.tv_sec) + 
                      (end_time.tv_nsec - start_time.tv_nsec) / 1e9;

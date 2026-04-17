@@ -229,7 +229,7 @@ int main(int argc, char *argv[]) {
 
     clock_gettime(CLOCK_MONOTONIC, &end_time);
     
-    save_image(output_file, img_out, width, height, channels);
+    //save_image(output_file, img_out, width, height, channels);
     
     // Calculate elapsed time in seconds
     double elapsed = (end_time.tv_sec - start_time.tv_sec) + 

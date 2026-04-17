@@ -1,0 +1,513 @@
+{
+    "auxiliary": {
+        "availablePages": "404 MB",
+        "availableRam": "254 MB",
+        "availableVirtualMemory": "N/A",
+        "cores": 12,
+        "cpuAgentCount": 0,
+        "cpuFamily": 25,
+        "cpuModel": 80,
+        "cpuModelName": "AMD Ryzen 5 7530U with Radeon Graphics",
+        "cpuTopology": [
+            [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                1,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                2,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                3,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                4,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                5,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                6,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                7,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                8,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                9,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                10,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                11,
+                0,
+                0,
+                0,
+                0
+            ]
+        ],
+        "eventColumnIds": [
+            {
+                "category": 1,
+                "categoryName": "CPU PROFILE",
+                "events": [
+                    {
+                        "callstack": true,
+                        "category": 1,
+                        "cmask": 0,
+                        "description": "The number of IBS op samples for ops that perform either a load and/or store operation. Each op may perform a load operation, a store operation or both a load and store operation (each to the same address).",
+                        "encodedId": 281474976772608,
+                        "eventCategory": 1,
+                        "expression": "",
+                        "frequency": 0,
+                        "hwEventId": 61952,
+                        "interval": 1,
+                        "invCmask": false,
+                        "isFrequencyMode": false,
+                        "isRawEvent": true,
+                        "name": "IBS_LOAD_STORE",
+                        "opCycleCount": false,
+                        "osMode": false,
+                        "samples": 0,
+                        "threshold": 0,
+                        "traceMode": 0,
+                        "unit": "",
+                        "unitMask": 0,
+                        "usrMode": false
+                    },
+                    {
+                        "callstack": true,
+                        "category": 1,
+                        "cmask": 0,
+                        "description": "The number of IBS op samples for ops that perform a load operation.",
+                        "encodedId": 281474976772609,
+                        "eventCategory": 1,
+                        "expression": "",
+                        "frequency": 0,
+                        "hwEventId": 61953,
+                        "interval": 1,
+                        "invCmask": false,
+                        "isFrequencyMode": false,
+                        "isRawEvent": true,
+                        "name": "IBS_LOAD",
+                        "opCycleCount": false,
+                        "osMode": false,
+                        "samples": 0,
+                        "threshold": 0,
+                        "traceMode": 0,
+                        "unit": "",
+                        "unitMask": 0,
+                        "usrMode": false
+                    },
+                    {
+                        "callstack": true,
+                        "category": 1,
+                        "cmask": 0,
+                        "description": "The number of IBS op samples for ops that perform a store operation.",
+                        "encodedId": 281474976772610,
+                        "eventCategory": 1,
+                        "expression": "",
+                        "frequency": 0,
+                        "hwEventId": 61954,
+                        "interval": 1,
+                        "invCmask": false,
+                        "isFrequencyMode": false,
+                        "isRawEvent": true,
+                        "name": "IBS_STORE",
+                        "opCycleCount": false,
+                        "osMode": false,
+                        "samples": 0,
+                        "threshold": 0,
+                        "traceMode": 0,
+                        "unit": "",
+                        "unitMask": 0,
+                        "usrMode": false
+                    },
+                    {
+                        "callstack": true,
+                        "category": 1,
+                        "cmask": 0,
+                        "description": "The total L1 DC miss load latency (in processor cycles) across all IBS op samples that performed a load operation and missed in the data cache. The miss latency is the number of clock cycles from when the L1 data cache miss was detected to when data was delivered to the core.",
+                        "encodedId": 281474976772633,
+                        "eventCategory": 1,
+                        "expression": "",
+                        "frequency": 0,
+                        "hwEventId": 61977,
+                        "interval": 1,
+                        "invCmask": false,
+                        "isFrequencyMode": false,
+                        "isRawEvent": true,
+                        "name": "IBS_LD_L1_DC_MISS_LAT",
+                        "opCycleCount": false,
+                        "osMode": false,
+                        "samples": 0,
+                        "threshold": 0,
+                        "traceMode": 0,
+                        "unit": "",
+                        "unitMask": 0,
+                        "usrMode": false
+                    },
+                    {
+                        "callstack": true,
+                        "category": 1,
+                        "cmask": 0,
+                        "description": "The number of IBS op samples where a store operation missed in L1 data cache.",
+                        "encodedId": 281474976772638,
+                        "eventCategory": 1,
+                        "expression": "",
+                        "frequency": 0,
+                        "hwEventId": 61982,
+                        "interval": 1,
+                        "invCmask": false,
+                        "isFrequencyMode": false,
+                        "isRawEvent": true,
+                        "name": "IBS_ST_L1_DC_MISS",
+                        "opCycleCount": false,
+                        "osMode": false,
+                        "samples": 0,
+                        "threshold": 0,
+                        "traceMode": 0,
+                        "unit": "",
+                        "unitMask": 0,
+                        "usrMode": false
+                    },
+                    {
+                        "callstack": true,
+                        "category": 1,
+                        "cmask": 0,
+                        "description": "The number of IBS op samples where a load operation was serviced by local system memory (local DRAM via the memory controller).",
+                        "encodedId": 281474976772677,
+                        "eventCategory": 1,
+                        "expression": "",
+                        "frequency": 0,
+                        "hwEventId": 62021,
+                        "interval": 1,
+                        "invCmask": false,
+                        "isFrequencyMode": false,
+                        "isRawEvent": true,
+                        "name": "IBS_LD_LOCAL_DRAM_HIT",
+                        "opCycleCount": false,
+                        "osMode": false,
+                        "samples": 0,
+                        "threshold": 0,
+                        "traceMode": 0,
+                        "unit": "",
+                        "unitMask": 0,
+                        "usrMode": false
+                    },
+                    {
+                        "callstack": true,
+                        "category": 1,
+                        "cmask": 0,
+                        "description": "The number of IBS op samples where a load operation was serviced by remote system memory (after traversing one or more coherent HyperTransport links and through a remote memory controller).",
+                        "encodedId": 281474976772678,
+                        "eventCategory": 1,
+                        "expression": "",
+                        "frequency": 0,
+                        "hwEventId": 62022,
+                        "interval": 1,
+                        "invCmask": false,
+                        "isFrequencyMode": false,
+                        "isRawEvent": true,
+                        "name": "IBS_LD_RMT_DRAM_HIT",
+                        "opCycleCount": false,
+                        "osMode": false,
+                        "samples": 0,
+                        "threshold": 0,
+                        "traceMode": 0,
+                        "unit": "",
+                        "unitMask": 0,
+                        "usrMode": false
+                    }
+                ]
+            }
+        ],
+        "guest": false,
+        "guestKallsyms": "",
+        "guestKmodules": "",
+        "guestPid": 3150603920,
+        "guestSymPaths": "",
+        "host": false,
+        "hypervisorEnabled": false,
+        "hypervisorVendor": "",
+        "ibsIdentifiers": 1023,
+        "ibsOpSampling": true,
+        "isCacheline": true,
+        "isFreqMode": false,
+        "issmtEnabled": true,
+        "onlineCores": 12,
+        "osName": "Linux Arch Linux-64 Kernel:6.19.8-arch1-1",
+        "p0Freq": 4547946,
+        "profScope": "Single Application",
+        "profiledPids": "49628;",
+        "totalPages": "3639 MB",
+        "totalRam": "7280 MB",
+        "totalVirtualMemory": "33554431 MB"
+    },
+    "categoriesCollected": [
+        "cpu"
+    ],
+    "collectCommand": "./AMDuProfCLI collect --config memory -o ./prof_6_threads ./denoise_calendar_final noise.ppm output_6.ppm 6",
+    "collection": {
+        "branch-filter": 511,
+        "callstack": {
+            "callstackSize": 1024,
+            "fpo": false,
+            "interval": 1,
+            "scope": 1,
+            "unwindDepth": 32
+        },
+        "dataBufferCount": 0,
+        "events": {
+            "configName": "Cache Analysis",
+            "configType": 3,
+            "cpuTraceSourceMask": 0,
+            "ibsEvents": {
+                "cacheAnalysis": true,
+                "fetch": false,
+                "fetchCallstack": false,
+                "fetchInterval": 0,
+                "fetchL3Miss": false,
+                "loadStoreOnly": true,
+                "op": true,
+                "opCallstack": true,
+                "opCycleCount": false,
+                "opInterval": 500000,
+                "opL3Miss": false,
+                "randomize": true
+            },
+            "pmcEvents": {
+                "pmcEventList": [
+                    {
+                        "cntMask": 0,
+                        "collectCallstack": true,
+                        "guest": false,
+                        "host": false,
+                        "hwId": 193,
+                        "interval": 500000,
+                        "intx": false,
+                        "intxcp": false,
+                        "invertCntMask": false,
+                        "isEdgeDetect": false,
+                        "isFrequencyMode": false,
+                        "isSampling": true,
+                        "mask": 0,
+                        "os": true,
+                        "user": true
+                    }
+                ]
+            },
+            "predefinedProfileType": 3,
+            "samplingModeMask": 1
+        },
+        "flags": {
+            "cssDefaultValues": false,
+            "defaultBranchAnalysis": false,
+            "hasCallstack": false,
+            "maxDataFileSize": 0,
+            "perEventCSSDefault": false,
+            "profileMpi": false,
+            "pythonTraceOptions": false,
+            "traceMpi": false,
+            "traceMpiMode": 0,
+            "traceOpenmp": false,
+            "traceOpenmpMode": 0,
+            "traceOpenmpType": 0
+        },
+        "globalFrequency": 0,
+        "globalSamplingInterval": 0,
+        "hostP0Freqs": [
+            {
+                "host": "archlinux",
+                "p0Freq": 2000.0
+            }
+        ],
+        "hotspotsProfilingSignal": 27,
+        "lbr": false,
+        "livePower": null,
+        "mmapBuffer": 0,
+        "profileConfigFiles": [
+            "memory"
+        ],
+        "schedule": {
+            "categoryDurations": [
+                {
+                    "category": 1,
+                    "categoryName": "CPU PROFILE",
+                    "end": 20373367161555,
+                    "start": 20368808998979,
+                    "type": 0
+                }
+            ],
+            "elapsed": 4559,
+            "end": 20373367161555,
+            "endTs": "Wed Apr 15 15:20:52 2026",
+            "hostDurations": [
+                {
+                    "end": 20373367161555,
+                    "host": "archlinux",
+                    "start": 20368808998979
+                }
+            ],
+            "profileCollectionDataLimitType": 0,
+            "profileDuration": 0,
+            "start": 20368808998979,
+            "startDelay": 0,
+            "startTs": "Wed Apr 15 15:20:47 2026",
+            "type": 1
+        },
+        "sessionVersion": 6,
+        "target": {
+            "appArgs": "noise.ppm output_6.ppm 6 ",
+            "coreAffinity": "FFF",
+            "coreMask": "FFF",
+            "gpuCollectAgentVersion": 0,
+            "gpuFamily": "",
+            "gpuRocprofVersion": 0,
+            "launchApp": "./denoise_calendar_final",
+            "profileCores": false,
+            "systemWide": false,
+            "terminateApp": false,
+            "workingDir": "/home/lucag/Computer-Architecture-Project"
+        }
+    },
+    "deviceInfo": {
+        "keys": [
+            0
+        ],
+        "values": [
+            {
+                "keys": [
+                    0,
+                    2,
+                    4,
+                    6,
+                    8,
+                    10,
+                    1,
+                    3,
+                    5,
+                    7,
+                    9,
+                    11
+                ],
+                "values": [
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ],
+                    [
+                        1095891,
+                        4547946
+                    ]
+                ]
+            }
+        ]
+    },
+    "hpc": {
+        "hostName": "archlinux"
+    },
+    "profileType": 1,
+    "reportCommand": "",
+    "translateCommand": ""
+}
