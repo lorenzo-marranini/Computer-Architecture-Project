@@ -89,7 +89,7 @@ __global__ void adaptive_median_shared_kernel(
             int s_y = ty + R_MAX;
             int s_x = tx + R_MAX;
 
-            int buckets[256];
+            unsigned short int buckets[256];
             for (int i = 0; i < 256; i++) buckets[i] = 0;
 
             int window_size = MIN_WINDOW_SIZE;
@@ -157,21 +157,45 @@ __global__ void adaptive_median_shared_kernel(
     }
 }
 
-// ... [INSERISCI QUI LA TUA FUNZIONE load_image E save_image] ...
+unsigned char* load_image(const char *filename, int *w, int *h, int *channels) {
+    FILE *f = fopen(filename, "rb");
+    if (!f) return NULL;
+    char magic[3];
+    fscanf(f, "%2s", magic);
+    if (strcmp(magic, "P5") == 0) *channels = 1;
+    else if (strcmp(magic, "P6") == 0) *channels = 3;
+    else { fclose(f); return NULL; }
+    int max_val;
+    fscanf(f, "%d %d %d", w, h, &max_val);
+    fgetc(f); 
+    unsigned char *datafile = (unsigned char*)malloc(*w * *h * *channels);
+    fread(datafile, 1, *w * *h * *channels, f);
+    fclose(f);
+    return datafile;
+}
+
+void save_image(const char *filename, unsigned char *data, int w, int h, int channels) {
+    FILE *f = fopen(filename, "wb");
+    if (!f) return;
+    const char *magic = (channels == 1) ? "P5" : "P6";
+    fprintf(f, "%s\n%d %d\n255\n", magic, w, h);
+    fwrite(data, 1, w * h * channels, f);
+    fclose(f);
+}
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <input.ppm> [output.ppm]\n", argv[0]);
         return 1;
     }
-    
     const char *input_file = argv[1];
     const char *output_file = (argc > 2) ? argv[2] : "output_shared.ppm";
     
     int width, height, channels;
     unsigned char *h_img_in = load_image(input_file, &width, &height, &channels);
+    printf("nel main\n");
+
     if (!h_img_in) return 1;
-    
     size_t img_size = width * height * channels * sizeof(unsigned char);
     unsigned char *h_img_out = (unsigned char*)malloc(img_size);
     

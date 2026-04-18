@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
-#include <AMDProfileController.h>
+//#include <AMDProfileController.h>
 
 const int S_MAX = 15; 
 

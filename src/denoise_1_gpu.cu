@@ -163,7 +163,7 @@ unsigned char* load_image(const char *filename, int *w, int *h, int *channels) {
     int max_val;
     fscanf(f, "%d %d %d", w, h, &max_val);
     fgetc(f); 
-    unsigned char *data = malloc(*w * *h * *channels);
+    unsigned char *data = (unsigned char*)malloc(*w * *h * *channels);
     fread(data, 1, *w * *h * *channels, f);
     fclose(f);
     return data;
@@ -207,11 +207,19 @@ int main(int argc, char *argv[]) {
     dim3 numBlocks((width + threadsPerBlock.x - 1) / threadsPerBlock.x,
                    (height + threadsPerBlock.y - 1) / threadsPerBlock.y);
 
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
     printf("Filtro Mediano Adattivo GPU Ottimizzato avviato...\n");
+    cudaEventRecord(start); // Fai partire il timer
 
     // Lancio Kernel
     adaptive_median_optimized_kernel<<<numBlocks, threadsPerBlock>>>(d_img_in, d_img_out, width, height, channels);
     
+    
+    cudaEventRecord(stop); // Ferma il timer
+
     cudaCheckError(cudaPeekAtLastError());
     cudaCheckError(cudaDeviceSynchronize());
     
@@ -225,7 +233,7 @@ int main(int argc, char *argv[]) {
     cudaCheckError(cudaMemcpy(h_img_out, d_img_out, img_size, cudaMemcpyDeviceToHost));
     
     // Salvataggio (scommenta nel tuo codice)
-    // save_image(output_file, h_img_out, width, height, channels);
+    save_image(output_file, h_img_out, width, height, channels);
     printf("Completato. Salvato in %s\n", output_file);
     
     cudaFree(d_img_in);

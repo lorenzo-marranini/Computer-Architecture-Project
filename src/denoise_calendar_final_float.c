@@ -3,7 +3,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <stdatomic.h>
-#include <AMDProfileController.h>
+//#include <AMDProfileController.h>
 #include <stdint.h>
 #include <time.h>
 

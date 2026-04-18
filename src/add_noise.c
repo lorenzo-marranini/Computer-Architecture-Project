@@ -6,23 +6,65 @@
 
 #define CLAMP(val, min, max) ((val) < (min) ? (min) : ((val) > (max) ? (max) : (val)))
 
+#include <ctype.h>
+
 unsigned char* load_image(const char *filename, int *w, int *h, int *channels) {
     FILE *f = fopen(filename, "rb");
-    if (!f) return NULL;
+    if (!f) {
+        fprintf(stderr, "DEBUG [load_image]: Impossibile aprire il file '%s'. Controlla il percorso!\n", filename);
+        return NULL;
+    }
+
     char magic[3];
-    fscanf(f, "%2s", magic);
+    if (fscanf(f, "%2s", magic) != 1) { 
+        fprintf(stderr, "DEBUG [load_image]: Fallita la lettura del magic number.\n");
+        fclose(f); 
+        return NULL; 
+    }
+
     if (strcmp(magic, "P5") == 0) *channels = 1;
     else if (strcmp(magic, "P6") == 0) *channels = 3;
-    else { fclose(f); return NULL; }
+    else { 
+        fprintf(stderr, "DEBUG [load_image]: Formato non supportato '%s'. Deve essere P5 o P6.\n", magic);
+        fclose(f); 
+        return NULL; 
+    }
+
+    int ch;
+    while ((ch = fgetc(f)) != EOF) {
+        if (isspace(ch)) continue;
+        if (ch == '#') {
+            while ((ch = fgetc(f)) != '\n' && ch != EOF);
+        } else {
+            ungetc(ch, f);
+            break;
+        }
+    }
+
     int max_val;
-    fscanf(f, "%d %d %d", w, h, &max_val);
+    if (fscanf(f, "%d %d %d", w, h, &max_val) != 3) { 
+        fprintf(stderr, "DEBUG [load_image]: Fallita la lettura di dimensioni (W, H) o max_val.\n");
+        fclose(f); 
+        return NULL; 
+    }
+    
     fgetc(f); 
-    unsigned char *data = malloc(*w * *h * *channels);
-    fread(data, 1, *w * *h * *channels, f);
+
+    size_t size = (size_t)(*w) * (*h) * (*channels);
+    unsigned char *data = malloc(size);
+    if (!data) { 
+        fprintf(stderr, "DEBUG [load_image]: Errore malloc per %zu bytes.\n", size);
+        fclose(f); 
+        return NULL; 
+    }
+
+    if (fread(data, 1, size, f) != size) {
+        fprintf(stderr, "DEBUG [load_image]: Attenzione, i dati immagine letti sono inferiori al previsto.\n");
+    }
+
     fclose(f);
     return data;
 }
-
 void save_image(const char *filename, unsigned char *data, int w, int h, int channels) {
     FILE *f = fopen(filename, "wb");
     if (!f) return;
@@ -93,7 +135,7 @@ int main(int argc, char *argv[]) {
     int *type_map = malloc(width * height * sizeof(int));
     
     for(int i = 0; i < width * height; i++) {
-        prob_map[i] = 0.10f; // Fondo pulito (10%)
+        prob_map[i] = 0.50f; // Fondo pulito (10%)
         type_map[i] = -1; 
     }
     
