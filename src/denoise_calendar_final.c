@@ -201,7 +201,7 @@ int main(int argc, char *argv[]) {
 
     // The Atomic Load Balancer is active
     atomic_int current_global_row = 0;
-    int chunk_size = 16; 
+    int chunk_size = 64; 
     
     pthread_t threads[num_threads];
     ThreadData td[num_threads];

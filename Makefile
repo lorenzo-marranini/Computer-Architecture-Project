@@ -7,14 +7,15 @@ LDFLAGS = -lm #-L/opt/amduprof/lib/x64/shared -Wl,-rpath=/opt/amduprof/lib/x64/s
 SRC_DIR = src
 
 # Executable names
-TARGETS = add_noise denoise_calendar_final denoise denoise_calendar_3_lock denoise_calendar_3_lock_debug denoise_calendar_3 add_noise_2_rows  denoise_calendar_final_float denoise_float_useless denoise_2_gpu denoise_1_gpu
+TARGETS = add_noise denoise_calendar_final denoise denoise_calendar_3_lock denoise_calendar_3_lock_debug denoise_calendar_3 add_noise_2_rows  denoise_calendar_final_float denoise_float_useless denoise_vectorized # denoise_2_gpu denoise_1_gpu
 
 # Default target runs when you just type 'make'
 .PHONY: all clean
 all: $(TARGETS)
 
 # Compile add_noise
-
+denoise_vectorized: $(SRC_DIR)/denoise_vectorized.c
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 denoise_1_gpu: $(SRC_DIR)/denoise_1_gpu.cu
 	nvcc -O3 -arch=sm_75 $< -o $@ $(LDFLAGS)
