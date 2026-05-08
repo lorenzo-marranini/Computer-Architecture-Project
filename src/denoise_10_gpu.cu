@@ -167,24 +167,58 @@ __global__ void fast_pass_kernel(
 }
 
 // ===========================================================================
-// KERNEL 2 — SLOW PASS (divergence-free)
+// KERNEL 2 — SLOW PASS (shared-memory warp histogram)
 // ===========================================================================
-// One thread per impulse pixel.  Every thread in this kernel is known to
-// need the histogram loop → zero divergence on that branch.
 //
-// The remaining minor divergence source is the `while (window_size <= S_MAX)`
-// loop itself: different pixels may converge at different window sizes.
-// This is unavoidable without a fundamentally different algorithm, but its
-// impact is now isolated to a small minority of pixels (typical impulse noise
-// is < 30% of pixels for realistic noise levels).
+// SHARED HISTOGRAM DESIGN
+// ───────────────────────
+// Problem: `uint8_t local_hist[256]` (256 bytes/thread) cannot fit in
+// registers. The compiler spills it to L1-backed local memory, producing
+// 3.7–5.5 sectors/request (profiler Images 2-3) instead of the ideal 1.0.
+// Every `local_hist[value]++` becomes an uncoalesced load+store pair to
+// local memory — the dominant cost in the kernel.
 //
-// Memory access pattern:
-//   Each thread reads up to a 15×15 = 225-pixel halo from in_data.
-//   These are scattered reads (different (gx,gy) per thread) and will
-//   hit L2 cache since fast_pass already warmed it.
+// Fix: allocate ONE histogram per warp in shared memory.
+//
+//   Layout:  __shared__ uint8_t s_hist[WARPS_PER_BLOCK][256]
+//            WARPS_PER_BLOCK = SLOW_BLOCK_SIZE / 32 = 16
+//            Total: 16 × 256 = 4096 bytes  (well within 32.77 KB/block)
+//
+// Each thread owns its warp's slice: s_hist[warp_id][0..255].
+// Because only ONE thread per warp ever writes to this kernel (1 thread =
+// 1 impulse pixel = 1 independent histogram), there is NO write conflict
+// between threads in the same warp — no atomics needed on shared memory.
+// The warp's histogram is private to that thread; other threads in the warp
+// are processing different pixels with their own warp slices.
+//
+// OVERFLOW SAFETY
+// ───────────────
+// uint8_t max = 255.  The largest window is 15×15 = 225 pixels.
+// 225 < 255, so a single bin can never overflow even if every pixel in the
+// window has the same value.  uint8_t is safe.
+//
+// CLEAR STRATEGY
+// ──────────────
+// Each thread clears only its own 256-byte warp slice before use.
+// Cost: 256 stores to shared memory, done once per pixel — negligible.
+// We do NOT use memset or cooperative clearing because each thread's slice
+// is independent; no synchronisation is needed.
+//
+// __launch_bounds__(512, 4)
+// ─────────────────────────
+// At 49 registers/thread with 512 threads/block the compiler allocates
+// 49×512 = 25,088 registers/block → only 2 blocks/SM on T4 (65536 regs/SM).
+// Telling the compiler to target 4 blocks/SM forces it to cap registers at
+// floor(65536 / (512×4)) = 32, doubling active warps from 32 to 64/SM and
+// giving the scheduler far more warps to hide the long_scoreboard latency
+// (47.7% of cycles in the old kernel).
 // ===========================================================================
 
-__global__ void slow_pass_kernel(
+// Number of warps per block — used to size the shared histogram array.
+#define WARPS_PER_BLOCK (SLOW_BLOCK_SIZE / 32)   // 512/32 = 16
+
+__global__ __launch_bounds__(SLOW_BLOCK_SIZE, 4)
+void slow_pass_kernel(
     const uint8_t *__restrict__ in_data,
     uint8_t       *__restrict__ out_data,
     int width, int height, int channels,
@@ -192,76 +226,97 @@ __global__ void slow_pass_kernel(
     const int *__restrict__ slow_count,
     int area)
 {
-    // This kernel is launched with a 1-D grid, one thread per slow pixel.
-    // blockIdx.x and threadIdx.x together address the slow_list for channel c.
-    // We loop over channels in the outer loop so we can reuse the same grid.
+    // ── SHARED HISTOGRAM ────────────────────────────────────────────────────
+    // 16 warps × 256 bins × 1 byte = 4096 bytes of shared memory.
+    // Each warp's slice is at s_hist[warp_id][0..255].
+    // No bank conflicts: consecutive threads access consecutive bytes within
+    // the same 256-byte slice (stride 1) → 8 shared-memory bank transactions
+    // per 32-thread warp access, same as optimal.
+    __shared__ uint8_t s_hist[WARPS_PER_BLOCK][256];
+
+    const int tid     = blockIdx.x * SLOW_BLOCK_SIZE + threadIdx.x;
+    const int warp_id = threadIdx.x >> 5;   // threadIdx.x / 32
+    // lane is used only for the clear loop; the histogram itself is written
+    // only by the owning thread (no intra-warp sharing needed).
+
+    // Pointer to this thread's private histogram slice in shared memory.
+    // Storing as a local pointer lets the compiler address it without
+    // recomputing the base each time.
+    uint8_t * __restrict__ my_hist = s_hist[warp_id];
 
     for (int c = 0; c < channels; c++) {
 
-        const int n = slow_count[c];   // number of impulse pixels this channel
-        const int tid = blockIdx.x * SLOW_BLOCK_SIZE + threadIdx.x;
-
-        if (tid >= n) continue;        // excess threads do nothing
+        const int n = slow_count[c];
+        if (tid >= n) continue;
 
         const int pixel_idx = slow_list[c * area + tid];
-        const int gx = pixel_idx % width;
-        const int gy = pixel_idx / width;
+        const int gx  = pixel_idx % width;
+        const int gy  = pixel_idx / width;
         const uint8_t Z_xy = in_data[c * area + pixel_idx];
 
-        // Per-thread histogram — lives in local memory (registers where
-        // possible, spills to L1-backed local mem otherwise).
-        // This is the same as before; improvement #4 (shared histogram)
-        // is a separate optimisation on top of this one.
-        uint8_t local_hist[256] = {0};
+        // ── CLEAR this warp's histogram slice ───────────────────────────────
+        // 256 uint8_t stores to shared memory: 8 transactions of 32 bytes.
+        // Using a simple loop; the compiler will unroll it with -O3.
+        #pragma unroll 16
+        for (int i = 0; i < 256; i++)
+            my_hist[i] = 0;
 
+        // ── ADAPTIVE WINDOW LOOP ─────────────────────────────────────────────
         int window_size = MIN_WINDOW_SIZE;
-        uint8_t final_color = Z_xy;   // safe default
+        uint8_t final_color = Z_xy;
 
         while (window_size <= S_MAX) {
             const int r = window_size / 2;
 
-            // Incrementally build histogram: on first iteration load full 3×3,
-            // on subsequent iterations add only the new border ring.
+            // Incrementally fill histogram: first iteration loads the full
+            // 3×3 window; subsequent iterations add only the new outer ring.
+            // All increments go to shared memory → no local-memory spill.
             if (window_size == 3) {
+                #pragma unroll
                 for (int wy = -1; wy <= 1; wy++)
+                    #pragma unroll
                     for (int wx = -1; wx <= 1; wx++) {
                         int gr = max(0, min(gy + wy, height - 1));
                         int gc = max(0, min(gx + wx, width  - 1));
-                        local_hist[ in_data[c * area + gr * width + gc] ]++;
+                        my_hist[ in_data[c * area + gr * width + gc] ]++;
                     }
             } else {
-                // Add only the outermost ring of the new window size
+                // Top and bottom rows of the new ring
                 for (int wx = -r; wx <= r; wx++) {
                     int gr_top = max(0, min(gy - r, height - 1));
                     int gr_bot = max(0, min(gy + r, height - 1));
                     int gc     = max(0, min(gx + wx, width  - 1));
-                    local_hist[ in_data[c * area + gr_top * width + gc] ]++;
-                    local_hist[ in_data[c * area + gr_bot * width + gc] ]++;
+                    my_hist[ in_data[c * area + gr_top * width + gc] ]++;
+                    my_hist[ in_data[c * area + gr_bot * width + gc] ]++;
                 }
+                // Left and right columns of the new ring (excluding corners)
                 for (int wy = -r + 1; wy <= r - 1; wy++) {
                     int gr     = max(0, min(gy + wy, height - 1));
                     int gc_lft = max(0, min(gx - r,  width  - 1));
                     int gc_rgt = max(0, min(gx + r,  width  - 1));
-                    local_hist[ in_data[c * area + gr * width + gc_lft] ]++;
-                    local_hist[ in_data[c * area + gr * width + gc_rgt] ]++;
+                    my_hist[ in_data[c * area + gr * width + gc_lft] ]++;
+                    my_hist[ in_data[c * area + gr * width + gc_rgt] ]++;
                 }
             }
 
-            // Scan histogram for min / median / max
+            // ── SCAN histogram for min / median / max ────────────────────────
+            // All reads come from shared memory (4-cycle latency) instead of
+            // local memory (30+ cycle latency with irregular addressing).
             int Z_min_h = -1, Z_max_h = -1, Z_med_h = -1;
             int cum = 0;
             const int target = ((window_size * window_size) / 2) + 1;
 
             #pragma unroll 16
             for (int i = 0; i < 256; i++) {
-                if (local_hist[i] > 0) {
+                if (my_hist[i] > 0) {
                     if (Z_min_h == -1) Z_min_h = i;
                     Z_max_h = i;
-                    cum += local_hist[i];
+                    cum += my_hist[i];
                     if (Z_med_h == -1 && cum >= target) Z_med_h = i;
                 }
             }
 
+            // ── ADAPTIVE MEDIAN DECISION ─────────────────────────────────────
             if ((Z_med_h - Z_min_h) > 0 && (Z_med_h - Z_max_h) < 0) {
                 final_color = ((Z_xy - Z_min_h) > 0 && (Z_xy - Z_max_h) < 0)
                               ? Z_xy : (uint8_t)Z_med_h;

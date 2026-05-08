@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <cuda_runtime.h>
 
+// Include Thrust headers for sorting
+#include <thrust/sort.h>
+#include <thrust/device_ptr.h>
+#include <thrust/execution_policy.h>
+
 // ---------------------------------------------------------------------------
 // COSTANTI DI CONFIGURAZIONE
 // ---------------------------------------------------------------------------
@@ -11,7 +16,7 @@
 #define MIN_WINDOW_SIZE 3
 #define R_MAX           (S_MAX / 2)     // 7
 
-// Fast-pass tile (same as before, keeps occupancy high)
+// Fast-pass tile 
 #define TILE_W          32
 #define TILE_H          8
 #define SHARED_W        (TILE_W + 2 * R_MAX)   // 46
@@ -22,13 +27,6 @@
 // ---------------------------------------------------------------------------
 // SLOW-PASS TILE
 // ---------------------------------------------------------------------------
-// Each thread in the slow-pass kernel is a confirmed impulse pixel.
-// We use a flat 1-D launch (512 threads/block) — no 2-D tile needed because
-// every thread accesses a different arbitrary (gx, gy) location; coalescing
-// of global reads is impossible here anyway, so simplicity wins.
-// The slow-pass thread reloads its own (S_MAX×S_MAX) = 15×15 halo directly
-// from global memory (L2-cached); no shared memory is used, which avoids
-// the __syncthreads() barrier that would be meaningless in an irregular kernel.
 #define SLOW_BLOCK_SIZE 512
 
 // ---------------------------------------------------------------------------
@@ -53,27 +51,13 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
 // ===========================================================================
 // KERNEL 1 — FAST PASS
 // ===========================================================================
-// Every thread runs the 3×3 sorting-network test.
-//   • Fast pixels  → result written to out_data, mask byte = 0.
-//   • Impulse pixels → input pixel copied to out_data (placeholder),
-//                      packed coordinate appended to slow_list[] via atomic,
-//                      mask byte = 1 (unused after compaction but useful for
-//                      debugging / future multi-channel loops).
-//
-// DIVERGENCE situation AFTER this fix:
-//   The if/else on the fast-path test still exists, but its two branches are
-//   now both trivial (one store vs. one store + one atomicAdd).  The expensive
-//   while-loop histogram is gone from this kernel entirely → warp divergence
-//   cost drops from ~hundreds of cycles to ~2-3 cycles.
-// ===========================================================================
 __global__ void fast_pass_kernel(
     const uint8_t *__restrict__ in_data,
     uint8_t       *__restrict__ out_data,
     int width, int height, int channels,
-    // Compaction outputs (one list per channel, pre-allocated to worst-case)
-    int  *__restrict__ slow_list,     // packed pixel indices: [channel * area + idx]
-    int  *__restrict__ slow_count,    // one atomic counter per channel
-    int  area)                        // width * height, passed to avoid remul
+    int  *__restrict__ slow_list,     
+    int  *__restrict__ slow_count,    
+    int  area)                        
 {
     __shared__ uint8_t s_in[SHARED_H][SHARED_PITCH];
 
@@ -87,9 +71,7 @@ __global__ void fast_pass_kernel(
 
     for (int c = 0; c < channels; c++) {
 
-        // ------------------------------------------------------------------
-        // FASE 1: CARICAMENTO COOPERATIVO COALESCENTE (1-D linearised)
-        // ------------------------------------------------------------------
+        // Phase 1: Cooperative Loading
         #pragma unroll 2
         for (int i = flat_tid; i < SHARED_H * SHARED_PITCH; i += THREADS_PER_BLOCK) {
             int sr  = i / SHARED_PITCH;
@@ -101,15 +83,12 @@ __global__ void fast_pass_kernel(
         }
         __syncthreads();
 
-        // ------------------------------------------------------------------
-        // FASE 2: TEST 3×3 — NO SLOW PATH HERE
-        // ------------------------------------------------------------------
+        // Phase 2: 3x3 Test
         if (gx < width && gy < height) {
             const int s_y = ty + R_MAX;
             const int s_x = tx + R_MAX;
             const uint8_t Z_xy = s_in[s_y][s_x];
 
-            // Load 3×3 window into registers
             uint8_t w9[9];
             int idx = 0;
             #pragma unroll
@@ -118,7 +97,6 @@ __global__ void fast_pass_kernel(
                 for (int wx = -1; wx <= 1; wx++)
                     w9[idx++] = s_in[s_y + wy][s_x + wx];
 
-            // Sorting network — 9-element, branchless
             SWAP_U8(w9[0],w9[1]); SWAP_U8(w9[3],w9[4]); SWAP_U8(w9[6],w9[7]);
             SWAP_U8(w9[1],w9[2]); SWAP_U8(w9[4],w9[5]); SWAP_U8(w9[7],w9[8]);
             SWAP_U8(w9[0],w9[1]); SWAP_U8(w9[3],w9[4]); SWAP_U8(w9[6],w9[7]);
@@ -136,28 +114,10 @@ __global__ void fast_pass_kernel(
             const int pixel_idx = gy * width + gx;
 
             if ((z_med - z_min) > 0 && (z_med - z_max) < 0) {
-                // ── FAST PATH: median is valid ──────────────────────────────
-                // Write final pixel immediately; no slow-path entry needed.
                 out_data[c * area + pixel_idx] =
                     ((Z_xy - z_min) > 0 && (Z_xy - z_max) < 0) ? Z_xy : z_med;
             } else {
-                // ── SLOW PATH NEEDED ────────────────────────────────────────
-                // Write a placeholder (original pixel) so the output buffer
-                // is always fully populated.  The slow_pass_kernel will
-                // overwrite this slot with the correct value.
                 out_data[c * area + pixel_idx] = Z_xy;
-
-                // Append this pixel's flat index to the per-channel slow list.
-                // atomicAdd returns the old counter value = our slot index.
-                // ---------------------------------------------------------------------------
-                // WHY atomicAdd IS SAFE HERE:
-                //   • slow_count[c] starts at 0 (zeroed by cudaMemset on host).
-                //   • In the absolute worst case every pixel is impulse noise
-                //     → slow_count[c] reaches area = width*height, which is
-                //     exactly the allocated size of slow_list[c*area .. (c+1)*area-1].
-                //   • atomicAdd on a 32-bit global int is a single hardware
-                //     instruction on all CUDA devices; no race condition possible.
-                // ---------------------------------------------------------------------------
                 int slot = atomicAdd(&slow_count[c], 1);
                 slow_list[c * area + slot] = pixel_idx;
             }
@@ -167,24 +127,12 @@ __global__ void fast_pass_kernel(
 }
 
 // ===========================================================================
-// KERNEL 2 — SLOW PASS (divergence-free)
+// KERNEL 2 — SLOW PASS
 // ===========================================================================
-// One thread per impulse pixel.  Every thread in this kernel is known to
-// need the histogram loop → zero divergence on that branch.
-//
-// The remaining minor divergence source is the `while (window_size <= S_MAX)`
-// loop itself: different pixels may converge at different window sizes.
-// This is unavoidable without a fundamentally different algorithm, but its
-// impact is now isolated to a small minority of pixels (typical impulse noise
-// is < 30% of pixels for realistic noise levels).
-//
-// Memory access pattern:
-//   Each thread reads up to a 15×15 = 225-pixel halo from in_data.
-//   These are scattered reads (different (gx,gy) per thread) and will
-//   hit L2 cache since fast_pass already warmed it.
-// ===========================================================================
+#define WARPS_PER_BLOCK (SLOW_BLOCK_SIZE / 32)   // 512/32 = 16
 
-__global__ void slow_pass_kernel(
+__global__ __launch_bounds__(SLOW_BLOCK_SIZE, 4)
+void slow_pass_kernel(
     const uint8_t *__restrict__ in_data,
     uint8_t       *__restrict__ out_data,
     int width, int height, int channels,
@@ -192,72 +140,69 @@ __global__ void slow_pass_kernel(
     const int *__restrict__ slow_count,
     int area)
 {
-    // This kernel is launched with a 1-D grid, one thread per slow pixel.
-    // blockIdx.x and threadIdx.x together address the slow_list for channel c.
-    // We loop over channels in the outer loop so we can reuse the same grid.
+    __shared__ uint8_t s_hist[WARPS_PER_BLOCK][256];
+
+    const int tid     = blockIdx.x * SLOW_BLOCK_SIZE + threadIdx.x;
+    const int warp_id = threadIdx.x >> 5;   
+
+    uint8_t * __restrict__ my_hist = s_hist[warp_id];
 
     for (int c = 0; c < channels; c++) {
 
-        const int n = slow_count[c];   // number of impulse pixels this channel
-        const int tid = blockIdx.x * SLOW_BLOCK_SIZE + threadIdx.x;
-
-        if (tid >= n) continue;        // excess threads do nothing
+        const int n = slow_count[c];
+        if (tid >= n) continue;
 
         const int pixel_idx = slow_list[c * area + tid];
-        const int gx = pixel_idx % width;
-        const int gy = pixel_idx / width;
+        const int gx  = pixel_idx % width;
+        const int gy  = pixel_idx / width;
         const uint8_t Z_xy = in_data[c * area + pixel_idx];
 
-        // Per-thread histogram — lives in local memory (registers where
-        // possible, spills to L1-backed local mem otherwise).
-        // This is the same as before; improvement #4 (shared histogram)
-        // is a separate optimisation on top of this one.
-        uint8_t local_hist[256] = {0};
+        #pragma unroll 16
+        for (int i = 0; i < 256; i++)
+            my_hist[i] = 0;
 
         int window_size = MIN_WINDOW_SIZE;
-        uint8_t final_color = Z_xy;   // safe default
+        uint8_t final_color = Z_xy;
 
         while (window_size <= S_MAX) {
             const int r = window_size / 2;
 
-            // Incrementally build histogram: on first iteration load full 3×3,
-            // on subsequent iterations add only the new border ring.
             if (window_size == 3) {
+                #pragma unroll
                 for (int wy = -1; wy <= 1; wy++)
+                    #pragma unroll
                     for (int wx = -1; wx <= 1; wx++) {
                         int gr = max(0, min(gy + wy, height - 1));
                         int gc = max(0, min(gx + wx, width  - 1));
-                        local_hist[ in_data[c * area + gr * width + gc] ]++;
+                        my_hist[ in_data[c * area + gr * width + gc] ]++;
                     }
             } else {
-                // Add only the outermost ring of the new window size
                 for (int wx = -r; wx <= r; wx++) {
                     int gr_top = max(0, min(gy - r, height - 1));
                     int gr_bot = max(0, min(gy + r, height - 1));
                     int gc     = max(0, min(gx + wx, width  - 1));
-                    local_hist[ in_data[c * area + gr_top * width + gc] ]++;
-                    local_hist[ in_data[c * area + gr_bot * width + gc] ]++;
+                    my_hist[ in_data[c * area + gr_top * width + gc] ]++;
+                    my_hist[ in_data[c * area + gr_bot * width + gc] ]++;
                 }
                 for (int wy = -r + 1; wy <= r - 1; wy++) {
                     int gr     = max(0, min(gy + wy, height - 1));
                     int gc_lft = max(0, min(gx - r,  width  - 1));
                     int gc_rgt = max(0, min(gx + r,  width  - 1));
-                    local_hist[ in_data[c * area + gr * width + gc_lft] ]++;
-                    local_hist[ in_data[c * area + gr * width + gc_rgt] ]++;
+                    my_hist[ in_data[c * area + gr * width + gc_lft] ]++;
+                    my_hist[ in_data[c * area + gr * width + gc_rgt] ]++;
                 }
             }
 
-            // Scan histogram for min / median / max
             int Z_min_h = -1, Z_max_h = -1, Z_med_h = -1;
             int cum = 0;
             const int target = ((window_size * window_size) / 2) + 1;
 
             #pragma unroll 16
             for (int i = 0; i < 256; i++) {
-                if (local_hist[i] > 0) {
+                if (my_hist[i] > 0) {
                     if (Z_min_h == -1) Z_min_h = i;
                     Z_max_h = i;
-                    cum += local_hist[i];
+                    cum += my_hist[i];
                     if (Z_med_h == -1 && cum >= target) Z_med_h = i;
                 }
             }
@@ -337,24 +282,16 @@ int main(int argc, char *argv[]) {
     const int   area     = width * height;
     const size_t img_sz  = (size_t)area * channels;
 
-    // Device image buffers
     uint8_t *d_in, *d_out;
     cudaCheckError(cudaMalloc(&d_in,  img_sz));
     cudaCheckError(cudaMalloc(&d_out, img_sz));
     cudaCheckError(cudaMemcpy(d_in, h_in, img_sz, cudaMemcpyHostToDevice));
 
-    // -----------------------------------------------------------------------
-    // COMPACTION BUFFERS
-    // -----------------------------------------------------------------------
-    // slow_list : worst-case every pixel is impulse → area entries per channel
-    // slow_count: one int per channel, atomically incremented by fast_pass
-    // -----------------------------------------------------------------------
     int *d_slow_list, *d_slow_count;
     cudaCheckError(cudaMalloc(&d_slow_list,  (size_t)area * channels * sizeof(int)));
     cudaCheckError(cudaMalloc(&d_slow_count, channels * sizeof(int)));
     cudaCheckError(cudaMemset(d_slow_count, 0, channels * sizeof(int)));
 
-    // Grid for fast_pass (same tiling as before)
     dim3 fast_block(TILE_W, TILE_H);
     dim3 fast_grid((width  + TILE_W - 1) / TILE_W,
                    (height + TILE_H - 1) / TILE_H);
@@ -376,7 +313,6 @@ int main(int argc, char *argv[]) {
     cudaEventRecord(t1);
     cudaCheckError(cudaDeviceSynchronize());
 
-    // Read back how many impulse pixels were found (cheap: channels ints)
     int h_slow_count[3] = {0, 0, 0};
     cudaCheckError(cudaMemcpy(h_slow_count, d_slow_count,
                               channels * sizeof(int), cudaMemcpyDeviceToHost));
@@ -390,21 +326,31 @@ int main(int argc, char *argv[]) {
                c, h_slow_count[c], area,
                100.0f * h_slow_count[c] / area);
 
+    // ── SORTING SLOW_LIST (The L2 Cache / Memory Coalescing Fix) ────────────
+    for (int c = 0; c < channels; c++) {
+        if (h_slow_count[c] > 0) {
+            // Sort the indices for this channel so neighboring threads in 
+            // the slow_pass warp process spatially adjacent pixels.
+            thrust::device_ptr<int> d_ptr(d_slow_list + c * area);
+            thrust::sort(thrust::device, d_ptr, d_ptr + h_slow_count[c]);
+        }
+    }
+
     // ── PASS 2 ──────────────────────────────────────────────────────────────
-    // Grid size = ceil(max_slow_count / SLOW_BLOCK_SIZE).
-    // We use the max across channels to keep a single grid dimension; threads
-    // for channels with fewer impulse pixels exit early via the `if (tid >= n)`
-    // guard inside the kernel.
     int max_slow = 0;
     for (int c = 0; c < channels; c++)
         if (h_slow_count[c] > max_slow) max_slow = h_slow_count[c];
 
     if (max_slow > 0) {
         int slow_grid = (max_slow + SLOW_BLOCK_SIZE - 1) / SLOW_BLOCK_SIZE;
+        
+        // Re-record t1 to isolate slow-pass execution time accurately
         cudaEventRecord(t1);
+        
         slow_pass_kernel<<<slow_grid, SLOW_BLOCK_SIZE>>>(
             d_in, d_out, width, height, channels,
             d_slow_list, d_slow_count, area);
+            
         cudaCheckError(cudaPeekAtLastError());
         cudaEventRecord(t2);
         cudaCheckError(cudaDeviceSynchronize());
@@ -419,7 +365,7 @@ int main(int argc, char *argv[]) {
 
     float ms_total = 0;
     cudaEventElapsedTime(&ms_total, t0, t2);
-    printf("Total GPU time: %.3f ms\n", ms_total);
+    printf("Total GPU time: %.3f ms (includes sorting)\n", ms_total);
 
     // Copy result back and save
     uint8_t *h_out = (uint8_t*)malloc(img_sz);

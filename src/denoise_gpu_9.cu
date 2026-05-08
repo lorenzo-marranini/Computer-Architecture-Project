@@ -183,7 +183,7 @@ __global__ void fast_pass_kernel(
 //   These are scattered reads (different (gx,gy) per thread) and will
 //   hit L2 cache since fast_pass already warmed it.
 // ===========================================================================
-
+__global__ __launch_bounds__(512, 4)
 __global__ void slow_pass_kernel(
     const uint8_t *__restrict__ in_data,
     uint8_t       *__restrict__ out_data,
