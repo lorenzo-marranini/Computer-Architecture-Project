@@ -180,6 +180,43 @@ void slow_pass_kernel(
     }
 }
 
+uint8_t* load_image_soa(const char *filename, int *w, int *h, int *channels) {
+    FILE *f = fopen(filename, "rb");
+    if (!f) return NULL;
+    char magic[3];
+    fscanf(f, "%2s", magic);
+    if      (strcmp(magic, "P5") == 0) *channels = 1;
+    else if (strcmp(magic, "P6") == 0) *channels = 3;
+    else { fclose(f); return NULL; }
+    int max_val;
+    fscanf(f, "%d %d %d", w, h, &max_val);
+    fgetc(f);
+    size_t area = (size_t)(*w) * (*h);
+    uint8_t *raw  = (uint8_t*)malloc(area * *channels);
+    uint8_t *soa  = (uint8_t*)malloc(area * *channels);
+    fread(raw, 1, area * *channels, f);
+    for (size_t i = 0; i < area; i++)
+        for (int c = 0; c < *channels; c++)
+            soa[c * area + i] = raw[i * (*channels) + c];
+    free(raw);
+    fclose(f);
+    return soa;
+}
+
+void save_image_soa(const char *filename, uint8_t *soa, int w, int h, int channels) {
+    FILE *f = fopen(filename, "wb");
+    if (!f) return;
+    fprintf(f, "%s\n%d %d\n255\n", (channels == 1) ? "P5" : "P6", w, h);
+    size_t area = (size_t)w * h;
+    uint8_t *raw = (uint8_t*)malloc(area * channels);
+    for (size_t i = 0; i < area; i++)
+        for (int c = 0; c < channels; c++)
+            raw[i * channels + c] = soa[c * area + i];
+    fwrite(raw, 1, area * channels, f);
+    free(raw);
+    fclose(f);
+}
+
 // ... Host functions (load_image_soa/save_image_soa identiche) ...
 // [Omesse per brevità, caricare l'immagine come fatto in precedenza]
 
