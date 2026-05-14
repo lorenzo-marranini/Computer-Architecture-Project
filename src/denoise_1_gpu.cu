@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <cuda_runtime.h>
-
+#include <stdint.h>
 const int S_MAX = 15;
 const int MIN_WINDOW_SIZE = 3;
 
@@ -53,7 +53,7 @@ __global__ void adaptive_median_optimized_kernel(
     // Controllo strettamente necessario per i thread che sbordano dall'immagine
     if (x >= width || y >= height) return;
 
-    int buckets[256];
+    uint8_t buckets[256];
     int max_radius = S_MAX / 2; 
 
     // Questa variabile booleana determina se il thread corrente può evitare i controlli.

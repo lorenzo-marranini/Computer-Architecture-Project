@@ -107,7 +107,7 @@ __global__ void adaptive_median_ultra_optimized_kernel(
                     out_data[c * (width * height) + (gy * width + gx)] = z_med;
                 }
                 // Il pixel è pulito! Usciamo subito, niente Warp Divergence inutile!
-                goto FINE_PIXEL; 
+                break; 
             }
 
             // --- OPTIMIZATION 2: IL SLOW-PATH CON ISTOGRAMMA IN SHARED MEMORY ---
