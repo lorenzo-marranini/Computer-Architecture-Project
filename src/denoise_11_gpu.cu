@@ -16,12 +16,13 @@
 #define MIN_WINDOW_SIZE 3
 #define R_MAX           (S_MAX / 2)     // 7
 
-// Fast-pass tile 
+// Fast-pass tile.
+// NOTE: il fast-pass non usa più shared memory, quindi le macro
+// SHARED_W / SHARED_PITCH / SHARED_H sono state rimosse.
+// TILE_W e TILE_H controllano solo la forma del blocco (32x8 = 256 thread,
+// warp allineati lungo x → letture coalescenti su global memory).
 #define TILE_W          32
 #define TILE_H          8
-#define SHARED_W        (TILE_W + 2 * R_MAX)   // 46
-#define SHARED_PITCH    64                      // ≥ SHARED_W, multiple of 32
-#define SHARED_H        (TILE_H + 2 * R_MAX)   // 22
 #define THREADS_PER_BLOCK (TILE_W * TILE_H)    // 256
 
 // ---------------------------------------------------------------------------
@@ -48,86 +49,117 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
     }
 }
 
+// ---------------------------------------------------------------------------
+// Helper device: legge in_data[c, y, x] con clamp ai bordi.
+// SoA: piano del canale c a offset c * area.
+// ---------------------------------------------------------------------------
+__device__ __forceinline__ uint8_t load_clamped(
+    const uint8_t *__restrict__ in_data,
+    int c, int y, int x, int width, int height, int area)
+{
+    int cy = max(0, min(y, height - 1));
+    int cx = max(0, min(x, width  - 1));
+    return in_data[c * area + cy * width + cx];
+}
+
 // ===========================================================================
-// KERNEL 1 — FAST PASS
+// KERNEL 1 — FAST PASS  (GLOBAL MEMORY, no shared)
+// ===========================================================================
+// Differenza rispetto alla versione shared:
+//   - Niente __shared__ s_in[][], niente caricamento cooperativo, niente
+//     __syncthreads() in questo kernel.
+//   - I 9 pixel della finestra 3×3 vengono letti direttamente da in_data.
+//   - Per i pixel interni (is_safe) si usa pointer arithmetic da un base
+//     precalcolato → niente clamp, accessi lineari coalescenti.
+//   - Per i pixel di bordo si usa load_clamped (max/min).
+// La compaction (atomicAdd su slow_count + scrittura in slow_list) è
+// identica a prima.
 // ===========================================================================
 __global__ void fast_pass_kernel(
     const uint8_t *__restrict__ in_data,
     uint8_t       *__restrict__ out_data,
     int width, int height, int channels,
-    int  *__restrict__ slow_list,     
-    int  *__restrict__ slow_count,    
-    int  area)                        
+    int  *__restrict__ slow_list,
+    int  *__restrict__ slow_count,
+    int  area)
 {
-    __shared__ uint8_t s_in[SHARED_H][SHARED_PITCH];
+    const int gx = blockIdx.x * TILE_W + threadIdx.x;
+    const int gy = blockIdx.y * TILE_H + threadIdx.y;
 
-    const int tx = threadIdx.x;
-    const int ty = threadIdx.y;
-    const int bx = blockIdx.x * TILE_W;
-    const int by = blockIdx.y * TILE_H;
-    const int gx = bx + tx;
-    const int gy = by + ty;
-    const int flat_tid = ty * TILE_W + tx;
+    if (gx >= width || gy >= height) return;
+
+    // Pixel interno: tutta la finestra 3×3 sta dentro l'immagine?
+    const bool is_safe = (gx >= 1 && gx < width  - 1 &&
+                          gy >= 1 && gy < height - 1);
 
     for (int c = 0; c < channels; c++) {
 
-        // Phase 1: Cooperative Loading
-        #pragma unroll 2
-        for (int i = flat_tid; i < SHARED_H * SHARED_PITCH; i += THREADS_PER_BLOCK) {
-            int sr  = i / SHARED_PITCH;
-            int sc  = i % SHARED_PITCH;
-            int csc = min(sc, SHARED_W - 1);
-            int gr  = max(0, min(by + sr - R_MAX, height - 1));
-            int gc  = max(0, min(bx + csc - R_MAX, width  - 1));
-            s_in[sr][sc] = in_data[c * area + gr * width + gc];
-        }
-        __syncthreads();
+        const int pixel_idx = gy * width + gx;
+        const int base      = c * area + pixel_idx;
+        const uint8_t Z_xy  = in_data[base];
 
-        // Phase 2: 3x3 Test
-        if (gx < width && gy < height) {
-            const int s_y = ty + R_MAX;
-            const int s_x = tx + R_MAX;
-            const uint8_t Z_xy = s_in[s_y][s_x];
+        // ------------------------------------------------------------------
+        // Carico i 9 pixel del 3×3 direttamente da global memory.
+        // ------------------------------------------------------------------
+        uint8_t w9[9];
 
-            uint8_t w9[9];
+        if (is_safe) {
+            // Accessi lineari: thread con threadIdx.x consecutivi leggono
+            // indirizzi consecutivi → letture coalescenti.
+            w9[0] = in_data[base - width - 1];
+            w9[1] = in_data[base - width    ];
+            w9[2] = in_data[base - width + 1];
+            w9[3] = in_data[base         - 1];
+            w9[4] = in_data[base            ];
+            w9[5] = in_data[base         + 1];
+            w9[6] = in_data[base + width - 1];
+            w9[7] = in_data[base + width    ];
+            w9[8] = in_data[base + width + 1];
+        } else {
             int idx = 0;
             #pragma unroll
-            for (int wy = -1; wy <= 1; wy++)
+            for (int wy = -1; wy <= 1; wy++) {
                 #pragma unroll
-                for (int wx = -1; wx <= 1; wx++)
-                    w9[idx++] = s_in[s_y + wy][s_x + wx];
-
-            SWAP_U8(w9[0],w9[1]); SWAP_U8(w9[3],w9[4]); SWAP_U8(w9[6],w9[7]);
-            SWAP_U8(w9[1],w9[2]); SWAP_U8(w9[4],w9[5]); SWAP_U8(w9[7],w9[8]);
-            SWAP_U8(w9[0],w9[1]); SWAP_U8(w9[3],w9[4]); SWAP_U8(w9[6],w9[7]);
-            SWAP_U8(w9[0],w9[3]); SWAP_U8(w9[1],w9[4]); SWAP_U8(w9[2],w9[5]);
-            SWAP_U8(w9[3],w9[6]); SWAP_U8(w9[4],w9[7]); SWAP_U8(w9[5],w9[8]);
-            SWAP_U8(w9[0],w9[3]); SWAP_U8(w9[1],w9[4]); SWAP_U8(w9[2],w9[5]);
-            SWAP_U8(w9[2],w9[6]); SWAP_U8(w9[1],w9[3]); SWAP_U8(w9[5],w9[7]);
-            SWAP_U8(w9[2],w9[4]); SWAP_U8(w9[4],w9[6]); SWAP_U8(w9[3],w9[5]);
-            SWAP_U8(w9[2],w9[3]); SWAP_U8(w9[4],w9[5]);
-
-            const uint8_t z_min = w9[0];
-            const uint8_t z_max = w9[8];
-            const uint8_t z_med = w9[4];
-
-            const int pixel_idx = gy * width + gx;
-
-            if ((z_med - z_min) > 0 && (z_med - z_max) < 0) {
-                out_data[c * area + pixel_idx] =
-                    ((Z_xy - z_min) > 0 && (Z_xy - z_max) < 0) ? Z_xy : z_med;
-            } else {
-                out_data[c * area + pixel_idx] = Z_xy;
-                int slot = atomicAdd(&slow_count[c], 1);
-                slow_list[c * area + slot] = pixel_idx;
+                for (int wx = -1; wx <= 1; wx++) {
+                    w9[idx++] = load_clamped(in_data, c,
+                                             gy + wy, gx + wx,
+                                             width, height, area);
+                }
             }
         }
-        __syncthreads();
+
+        // ------------------------------------------------------------------
+        // Sorting network 9 elementi (identica alla versione shared)
+        // ------------------------------------------------------------------
+        SWAP_U8(w9[0],w9[1]); SWAP_U8(w9[3],w9[4]); SWAP_U8(w9[6],w9[7]);
+        SWAP_U8(w9[1],w9[2]); SWAP_U8(w9[4],w9[5]); SWAP_U8(w9[7],w9[8]);
+        SWAP_U8(w9[0],w9[1]); SWAP_U8(w9[3],w9[4]); SWAP_U8(w9[6],w9[7]);
+        SWAP_U8(w9[0],w9[3]); SWAP_U8(w9[1],w9[4]); SWAP_U8(w9[2],w9[5]);
+        SWAP_U8(w9[3],w9[6]); SWAP_U8(w9[4],w9[7]); SWAP_U8(w9[5],w9[8]);
+        SWAP_U8(w9[0],w9[3]); SWAP_U8(w9[1],w9[4]); SWAP_U8(w9[2],w9[5]);
+        SWAP_U8(w9[2],w9[6]); SWAP_U8(w9[1],w9[3]); SWAP_U8(w9[5],w9[7]);
+        SWAP_U8(w9[2],w9[4]); SWAP_U8(w9[4],w9[6]); SWAP_U8(w9[3],w9[5]);
+        SWAP_U8(w9[2],w9[3]); SWAP_U8(w9[4],w9[5]);
+
+        const uint8_t z_min = w9[0];
+        const uint8_t z_max = w9[8];
+        const uint8_t z_med = w9[4];
+
+        if ((z_med - z_min) > 0 && (z_med - z_max) < 0) {
+            // Fast path: scrivo il pixel finale.
+            out_data[base] =
+                ((Z_xy - z_min) > 0 && (Z_xy - z_max) < 0) ? Z_xy : z_med;
+        } else {
+            // Slow path needed: placeholder + compaction.
+            out_data[base] = Z_xy;
+            int slot = atomicAdd(&slow_count[c], 1);
+            slow_list[c * area + slot] = pixel_idx;
+        }
     }
 }
 
 // ===========================================================================
-// KERNEL 2 — SLOW PASS
+// KERNEL 2 — SLOW PASS (INVARIATO)
 // ===========================================================================
 #define WARPS_PER_BLOCK (SLOW_BLOCK_SIZE / 32)   // 512/32 = 16
 
@@ -296,7 +328,7 @@ int main(int argc, char *argv[]) {
     dim3 fast_grid((width  + TILE_W - 1) / TILE_W,
                    (height + TILE_H - 1) / TILE_H);
 
-    printf("=== Two-Pass Adaptive Median Filter ===\n");
+    printf("=== Two-Pass Adaptive Median Filter (fast pass: global memory) ===\n");
     printf("Image : %d x %d x %d ch\n", width, height, channels);
 
     cudaEvent_t t0, t1, t2;

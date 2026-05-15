@@ -267,7 +267,6 @@ int main(int argc, char *argv[]) {
         int slow_grid = (max_slow + SLOW_BLOCK_SIZE - 1) / SLOW_BLOCK_SIZE;
         slow_pass_kernel<<<slow_grid, SLOW_BLOCK_SIZE>>>(d_in, d_out, d_pitch, width, height, channels, d_slow_list, d_slow_count, area);
     }
-
     // ... Cleanup e salvataggio (usando cudaMemcpy2D per tornare all'host) ...
     uint8_t *h_out = (uint8_t*)malloc(img_sz);
     cudaMemcpy2D(h_out, width, d_out, d_pitch, width, height * channels, cudaMemcpyDeviceToHost);
