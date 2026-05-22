@@ -259,20 +259,22 @@ __global__ void slow_pass_kernel(
             }
 
             // ── Two-pass early-exit scan (fix #3) ──────────────────────────
-            int Z_min_h = -1, Z_med_h = -1, Z_max_h = -1;
+            // ── SINGLE-PASS UNROLLED SCAN ──────────────────────────────────
+            // A flat 256-iteration unrolled scan (no early-exit break) is
+            // faster on the GPU than the two-pass early-exit version: the
+            // break prevented unrolling and caused warp divergence.
+            int Z_min_h = -1, Z_max_h = -1, Z_med_h = -1;
             int cum = 0;
             const int target = ((window_size * window_size) / 2) + 1;
 
+            #pragma unroll 16
             for (int i = 0; i < 256; i++) {
-                int count = local_hist[i];
-                if (count > 0) {
+                if (local_hist[i] > 0) {
                     if (Z_min_h == -1) Z_min_h = i;
-                    cum += count;
-                    if (cum >= target) { Z_med_h = i; break; }
+                    Z_max_h = i;
+                    cum += local_hist[i];
+                    if (Z_med_h == -1 && cum >= target) Z_med_h = i;
                 }
-            }
-            for (int i = 255; i >= 0; i--) {
-                if (local_hist[i] > 0) { Z_max_h = i; break; }
             }
 
             // ── Adaptive median decision ───────────────────────────────────
