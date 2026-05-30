@@ -221,6 +221,9 @@ __global__ void slow_pass_kernel(
 
         // Per-thread histogram in LOCAL memory (NOT shared).
         // Each thread owns its own 256-byte histogram → no collision.
+
+
+        
         uint8_t local_hist[256] = {0};
 
         int window_size = MIN_WINDOW_SIZE;
